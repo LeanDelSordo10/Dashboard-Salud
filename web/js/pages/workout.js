@@ -74,8 +74,10 @@ export default async function workout(view, { params, setSub }) {
           return setRow(i + 1, timed ? {} : { weight_kg: ls?.weight_kg ?? t.weight_kg ?? '' }, timed, ls);
         });
     const chosen = it.saved?.exercise_id ?? it.exercise_id;
-    return `<article class="card ex-card ${it.saved ? 'saved' : ''}" data-idx="${idx}" data-timed="${timed ? 1 : 0}">
-      <div class="ex-head"><div class="ex-num">${it.saved ? '✓' : it.position}</div>
+    return `<article class="card ex-card ${it.saved ? 'saved' : ''}" data-ex="${it.exercise_id}" data-timed="${timed ? 1 : 0}">
+      <div class="ex-head">
+        <button type="button" class="drag-handle" aria-label="Mover ${esc(it.name)}. Usá las flechas para subir o bajar" title="Arrastrá para cambiar el orden">⠿</button>
+        <div class="ex-num">${it.saved ? '✓' : idx + 1}</div>
         <div class="ex-title"><b class="ex-name">${esc(data.catalog.find((c) => c.id === chosen)?.name ?? it.name)}</b>
           <div class="ex-meta">${it.muscle ? `<span>${esc(it.muscle)}</span>` : ''}${target ? `<span>Objetivo: ${target}</span>` : ''}</div></div></div>
       <div class="ex-last">${lastTxt}</div>
@@ -90,6 +92,108 @@ export default async function workout(view, { params, setSub }) {
       <details class="swap"><summary>⇄ Cambiar ejercicio (si usaste otra máquina)</summary>
         <select class="pick">${data.catalog.map((c) => `<option value="${c.id}" ${c.id === chosen ? 'selected' : ''}>${esc(c.name)}${c.muscle ? ' · ' + esc(c.muscle) : ''}</option>`).join('')}</select></details>
     </article>`;
+  }
+
+  // ------------------------------------------------------------ reordenar
+  // Cada ejercicio tiene una manija (⠿) para arrastrarlo con el mouse o el dedo.
+  // Mientras se arrastra, las tarjetas se compactan para que sea fácil moverlas.
+  // El nuevo orden se guarda en la rutina (queda así para las próximas veces).
+  function currentOrder(list) { return $$('.ex-card', list).map((c) => c.dataset.ex); }
+  function applyOrder(list, ids) {
+    data.items.sort((a, b) => ids.indexOf(a.exercise_id) - ids.indexOf(b.exercise_id));
+    data.items.forEach((it, i) => (it.position = i + 1));
+    $$('.ex-card', list).forEach((c, i) => { const n = $('.ex-num', c); if (n.textContent !== '✓') n.textContent = i + 1; });
+  }
+  async function persistOrder(list, before) {
+    const ids = currentOrder(list);
+    if (ids.join() === before.join()) return;
+    applyOrder(list, ids);
+    try { await api.saveRoutineOrder(day, ids); toast('Orden guardado'); }
+    catch (err) {
+      toast(err.message || 'No se pudo guardar el orden', 'error');
+      for (const id of before) list.appendChild($(`.ex-card[data-ex="${id}"]`, list));
+      applyOrder(list, before);
+    }
+  }
+
+  function enableReorder(list) {
+    if (!list || list.dataset.reorder) return;
+    list.dataset.reorder = '1';
+
+    // Teclado: flechas arriba/abajo sobre la manija.
+    list.addEventListener('keydown', (e) => {
+      const h = e.target.closest('.drag-handle');
+      if (!h || !['ArrowUp', 'ArrowDown'].includes(e.key)) return;
+      e.preventDefault();
+      const card = h.closest('.ex-card'), before = currentOrder(list);
+      const sib = e.key === 'ArrowUp' ? card.previousElementSibling : card.nextElementSibling;
+      if (!sib) return;
+      e.key === 'ArrowUp' ? sib.before(card) : sib.after(card);
+      h.focus();
+      persistOrder(list, before);
+    });
+
+    list.addEventListener('pointerdown', (e) => {
+      const h = e.target.closest('.drag-handle');
+      if (!h || e.button > 0) return;
+      e.preventDefault();
+      const card = h.closest('.ex-card');
+      const before = currentOrder(list);
+      const startY = e.clientY;
+      let y = startY, raf = 0, started = false, ph = null, offset = 0;
+
+      // El arrastre empieza recién cuando el puntero se mueve unos píxeles
+      // (un toque simple sobre la manija no hace nada).
+      const start = () => {
+        started = true;
+        const headTop = card.getBoundingClientRect().top;
+        list.classList.add('reordering');
+        document.body.classList.add('is-dragging');
+        window.scrollBy(0, card.getBoundingClientRect().top - headTop); // compensar el compactado
+        const r = card.getBoundingClientRect();
+        offset = Math.min(r.height - 8, Math.max(8, startY - headTop));
+        ph = document.createElement('div');
+        ph.className = 'ex-placeholder';
+        ph.style.height = r.height + 'px';
+        card.before(ph);
+        Object.assign(card.style, { width: r.width + 'px', left: r.left + 'px', top: (y - offset) + 'px' });
+        card.classList.add('dragging');
+        if (navigator.vibrate) navigator.vibrate(15);
+        raf = requestAnimationFrame(tick);
+      };
+      const place = () => {
+        card.style.top = (y - offset) + 'px';
+        const others = $$('.ex-card:not(.dragging)', list);
+        const next = others.find((c) => { const b = c.getBoundingClientRect(); return y < b.top + b.height / 2; });
+        if (next) { if (ph.nextElementSibling !== next) next.before(ph); }
+        else if (others.length && ph !== list.lastElementChild) others.at(-1).after(ph);
+      };
+      const tick = () => {
+        const edge = 90, bottomEdge = window.innerHeight - 150;
+        if (y < edge) window.scrollBy(0, -Math.ceil((edge - y) / 6));
+        else if (y > bottomEdge) window.scrollBy(0, Math.ceil((y - bottomEdge) / 6));
+        place();
+        raf = requestAnimationFrame(tick);
+      };
+      const move = (ev) => { y = ev.clientY; if (!started && Math.abs(y - startY) > 4) start(); };
+      const end = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', end);
+        window.removeEventListener('pointercancel', end);
+        if (!started) return;
+        cancelAnimationFrame(raf);
+        ph.replaceWith(card);
+        card.classList.remove('dragging');
+        card.removeAttribute('style');
+        list.classList.remove('reordering');
+        document.body.classList.remove('is-dragging');
+        card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        persistOrder(list, before);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', end);
+      window.addEventListener('pointercancel', end);
+    });
   }
 
   function renumber(card) { $$('.set-row', card).forEach((r, i) => ($('.n', r).textContent = i + 1)); }
@@ -111,7 +215,7 @@ export default async function workout(view, { params, setSub }) {
       day = b.dataset.day; load();
     }));
     $$('.ex-card', view).forEach((card) => {
-      const it = data.items[Number(card.dataset.idx)];
+      const it = data.items.find((x) => x.exercise_id === card.dataset.ex);
       const timed = card.dataset.timed === '1';
       card.addEventListener('input', () => markDirty(card));
       card.addEventListener('click', (e) => {
@@ -141,6 +245,7 @@ export default async function workout(view, { params, setSub }) {
       };
       $('.save', card).onclick = () => save(card, it, timed);
     });
+    enableReorder($('#exList'));
     const fin = $('#finishBtn');
     if (fin) fin.onclick = finish;
     const re = $('#reopenBtn');

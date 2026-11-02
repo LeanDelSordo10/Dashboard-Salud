@@ -350,3 +350,14 @@ body.drawer-open .drawer-backdrop { opacity: 1; pointer-events: auto; }
 .health-mini > div { display: grid; gap: 2px; }
 .health-mini b { font-size: 18px; white-space: nowrap; }
 .health-mini small { font-size: 12px; }
+
+/* ---------------------------------------------------------------- reordenar ejercicios */
+.drag-handle { flex: none; width: 30px; height: 30px; margin-left: -6px; border: 0; border-radius: 8px; background: transparent; color: var(--muted);
+  font-size: 18px; line-height: 1; cursor: grab; touch-action: none; display: grid; place-items: center; }
+.drag-handle:hover, .drag-handle:focus-visible { background: var(--surface-2); color: var(--text); }
+.ex-card.dragging { position: fixed; z-index: 60; margin: 0; pointer-events: none; border-color: var(--accent);
+  box-shadow: 0 24px 50px -10px rgba(0, 0, 0, .75); transform: scale(1.02); }
+.ex-list.reordering .ex-card > :not(.ex-head) { display: none; }
+.ex-list.reordering .ex-card { padding-top: 12px; padding-bottom: 12px; }
+.ex-placeholder { border: 2px dashed var(--accent); border-radius: var(--radius); background: var(--accent-soft); }
+body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select: none; -webkit-user-select: none; }
