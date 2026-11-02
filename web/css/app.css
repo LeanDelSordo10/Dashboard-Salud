@@ -363,3 +363,5 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select:
 .target-change { margin-top: 6px; display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 8px;
   background: var(--surface-3); color: var(--text-2); }
 .target-change.up { background: var(--green-soft); color: #86efac; }
+.muscle-credit { margin: 0; text-align: center; font-size: 10.5px; color: var(--muted); opacity: .8; }
+.muscle-credit a { color: inherit; }
