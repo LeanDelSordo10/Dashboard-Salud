@@ -27,6 +27,10 @@ jobs:
         run: |
           v="$(date -u +%Y%m%d%H%M)"
           sed -i "s/?v=2026.11.01/?v=$v/g" web/index.html
+          # Versiona también los imports entre módulos para que el navegador
+          # nunca mezcle archivos viejos (en caché) con nuevos.
+          find web/js -name '*.js' -exec sed -i -E "s#from '(\.\.?/[^'?]+\.js)'#from '\1?v=$v'#g" {} +
+          sed -i "s/const CACHE = 'ds-shell-v1'/const CACHE = 'ds-shell-$v'/" web/sw.js
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
