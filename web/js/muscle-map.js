@@ -28,12 +28,12 @@ export function muscleMap(muscles = [], { legend = true, compact = false } = {})
   const color = (id) => (sets.get(id) ? HEAT(sets.get(id) / max) : null);
 
   // Se pinta cada región con un estilo inline (gana sobre el estilo base del SVG).
-  const svg = SVG.replace(/<path class="muscle" data-muscle="([^"]+)"/g, (tag, id) => {
+  const svg = SVG.replace(/<path class="muscle" data-muscle="([^"]+)" data-area="([^"]+)"([^>]*)><title>[^<]*<\/title>/g, (_, id, area, rest) => {
     const c = color(id);
-    const info = muscleInfo(id);
-    const label = info ? `${info.label} (${info.scientific})` : id;
-    return `${tag} style="${c ? `fill:${c};stroke:#ff8095` : ''}" data-label="${esc(label)}: ${fmt(sets.get(id) || 0)} series"`;
-  }).replace(/<title>([^<]+)<\/title>/g, (_, id) => `<title>${esc(muscleInfo(id)?.label ?? id)}: ${fmt(sets.get(id) || 0)} series</title>`);
+    const zone = MAP.areas?.find((a) => a.id === area)?.label ?? area;
+    const title = `${zone} · ${muscleInfo(id)?.label ?? id}: ${fmt(sets.get(id) || 0)} series`;
+    return `<path class="muscle" data-muscle="${id}" data-area="${area}"${rest} style="${c ? `fill:${c};stroke:#ff8095` : ''}"><title>${esc(title)}</title>`;
+  });
 
   const order = MAP.muscles.length ? MAP.muscles.map((m) => m.id) : [...sets.keys()];
   const worked = order.filter((id) => sets.get(id)).sort((a, b) => sets.get(b) - sets.get(a));

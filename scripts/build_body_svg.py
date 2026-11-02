@@ -4,7 +4,8 @@ Dibujo original (no calcado de ninguna ilustración). Cada figura vive en un
 lienzo de 200 x 470 con el eje de simetría en x = 100: solo se define la mitad
 izquierda y la derecha se obtiene espejando, así la figura es perfectamente
 simétrica. Las regiones con data-muscle="<id>" usan los ids de
-web/assets/muscle-map.json; las regiones "detail" (antebrazo, tibia, rodilla,
+web/assets/muscle-map.json y data-area="<zona>" con los nombres de
+web/assets/synoptic-area-ids.json (p. ej. Hombro_Izquierdo); las regiones "detail" (antebrazo, tibia, rodilla,
 serrato...) completan la anatomía pero no se pintan.
 
 Uso: python scripts/build_body_svg.py
@@ -101,21 +102,54 @@ BACK = {
 }
 
 
-def region(name, d):
+# Nombres de zona de synoptic-area-ids.json (base sin lado) para cada grupo.
+AREA = {
+    'Hombros': 'Hombro', 'Pecho': 'Pecho', 'Abdominales': 'Abdomen', 'Bíceps': 'Bicep', 'Tríceps': 'Tricep',
+    'Glúteos': 'Gluteo', 'Gemelos': 'Gemelo', 'Cuádriceps': 'Cuadricep', 'Aductores': 'Aductor',
+    'Isquiotibiales': 'Isquiotibial', 'Espalda': 'Dorsal',
+}
+
+
+def area_name(group, index, view):
+    """Zona anatómica: en la espalda, la 1.ª región es el trapecio; en el frente, el trapecio superior."""
+    if group == 'Espalda' and (view == 'front' or index == 0):
+        return 'Trapecio'
+    return AREA[group]
+
+
+def region(name, d, area=None):
     if name == 'detail':
         return f'<path class="detail" d="{d}"/>'
-    return f'<path class="muscle" data-muscle="{name}" d="{d}"><title>{name}</title></path>'
+    return (f'<path class="muscle" data-muscle="{name}" data-area="{area}" d="{d}">'
+            f'<title>{name}</title></path>')
 
 
-def figure(parts, label, dx):
-    half = ''.join(region(n, d) for n, ds in parts.items() for d in ds)
-    half += ''.join(f'<path class="line" d="{d}"/>' for d in LINES)
+def half_body(parts, view, side):
+    """Mitad del cuerpo. side = lado anatómico de esa mitad ('Derecho' o 'Izquierdo')."""
+    out = []
+    for group, paths in parts.items():
+        for i, d in enumerate(paths):
+            if group == 'detail':
+                out.append(region(group, d))
+                continue
+            base = area_name(group, i, view)
+            area = base if base == 'Abdomen' else f'{base}_{side}'
+            out.append(region(group, d, area))
+    out += [f'<path class="line" d="{d}"/>' for d in LINES]
+    return ''.join(out)
+
+
+def figure(parts, label, dx, view):
+    # Vista frontal: la mitad dibujada (izquierda de la pantalla) es el lado DERECHO
+    # de la persona. Vista dorsal: es el lado IZQUIERDO.
+    drawn, mirrored = ('Derecho', 'Izquierdo') if view == 'front' else ('Izquierdo', 'Derecho')
     return (
         f'<g transform="translate({dx} 0)" aria-label="{label}">'
         f'<g filter="url(#outline)">{HEAD}'
         f'<path class="silhouette" d="{SILHOUETTE}"/>'
         f'<path class="silhouette" d="{SILHOUETTE}" transform="{MIRROR}"/></g>'
-        f'<g>{half}</g><g transform="{MIRROR}">{half}</g>'
+        f'<g>{half_body(parts, view, drawn)}</g>'
+        f'<g transform="{MIRROR}">{half_body(parts, view, mirrored)}</g>'
         f'<text class="caption" x="100" y="476" text-anchor="middle">{label}</text>'
         '</g>'
     )
@@ -136,8 +170,8 @@ def build():
         '.line{fill:none;stroke:#55616f;stroke-width:.7;stroke-linecap:round}'
         '.caption{fill:#8592a3;font:600 13px Inter,system-ui,sans-serif;letter-spacing:.12em}'
         '</style>'
-        + figure(FRONT, 'FRENTE', 0)
-        + figure(BACK, 'ESPALDA', 240)
+        + figure(FRONT, 'FRENTE', 0, 'front')
+        + figure(BACK, 'ESPALDA', 240, 'back')
         + '</svg>'
     )
     out = pathlib.Path(__file__).resolve().parents[1] / 'web' / 'assets' / 'body-muscles.svg'
