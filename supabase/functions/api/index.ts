@@ -514,6 +514,22 @@ async function workoutToday(day: string, date: string) {
   };
 }
 
+/** Guarda el nuevo orden de los ejercicios de un día de la rutina. */
+async function saveRoutineOrder(body: any) {
+  const day = String(body?.day ?? '');
+  if (!DAY_CODES.includes(day)) throw new HttpError(400, 'Rutina inválida');
+  const ids: string[] = Array.isArray(body?.exercise_ids) ? body.exercise_ids.map(String) : [];
+  if (!ids.length || ids.length > 30 || ids.some((x) => !UUID_RE.test(x)) || new Set(ids).size !== ids.length) throw new HttpError(400, 'Orden inválido');
+  const routines = await q<any[]>(db.from('routine_templates').select('id').eq('active', true).order('created_at').limit(1));
+  if (!routines.length) throw new HttpError(404, 'No hay rutina activa');
+  const rows = await q<any[]>(db.from('routine_exercises').select('id,exercise_id').eq('routine_id', routines[0].id).eq('day_code', day));
+  const current = new Set(rows.map((r) => r.exercise_id));
+  if (rows.length !== ids.length || ids.some((x) => !current.has(x))) throw new HttpError(409, 'La rutina cambió. Recargá la página.');
+  const byEx = new Map(rows.map((r) => [r.exercise_id, r.id]));
+  await Promise.all(ids.map((exId, i) => q(db.from('routine_exercises').update({ position: i + 1 }).eq('id', byEx.get(exId)))));
+  return { ok: true };
+}
+
 async function createOrResumeWorkout(body: any) {
   const title = String(body?.title ?? '');
   const date = String(body?.date ?? todayBA());
@@ -651,6 +667,7 @@ async function route(req: Request, path: string[], url: URL) {
     if (!DATE_RE.test(date)) throw new HttpError(400, 'Fecha inválida');
     return workoutToday(url.searchParams.get('day') ?? '', date);
   }
+  if (m === 'PUT' && a === 'routine' && b === 'order') return saveRoutineOrder(body);
   if (m === 'POST' && a === 'workouts' && !b) return createOrResumeWorkout(body);
   if (m === 'PUT' && a === 'workouts' && b && c === 'exercise') return saveExerciseSets(b, body);
   if (m === 'POST' && a === 'workouts' && b && c === 'finish') return setWorkoutStatus(b, 'completed');
