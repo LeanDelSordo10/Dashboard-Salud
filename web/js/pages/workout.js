@@ -69,7 +69,7 @@ export default async function workout(view, { params, setSub }) {
     if (!c) return '';
     const b = c.before, a = c.after;
     const up = (a.weight_kg ?? 0) > (b.weight_kg ?? 0) || (a.reps_min ?? 0) > (b.reps_min ?? 0) || (a.sets ?? 0) > (b.sets ?? 0);
-    const when = c.changed_at ? fmtDate(c.changed_at.slice(0, 10)) : 'ahora';
+    const when = c.changed_at ? new Date(c.changed_at).toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', day: 'numeric', month: 'short' }).replace('.', '') : 'ahora';
     return `<div class="target-change ${up ? 'up' : ''}" title="Antes: ${esc(targetText(b))}">🎯 Objetivo actualizado ${when} · antes ${esc(targetText(b))}</div>`;
   }
 
