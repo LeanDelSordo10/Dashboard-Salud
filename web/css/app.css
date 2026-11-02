@@ -361,3 +361,6 @@ body.drawer-open .drawer-backdrop { opacity: 1; pointer-events: auto; }
 .ex-list.reordering .ex-card { padding-top: 12px; padding-bottom: 12px; }
 .ex-placeholder { border: 2px dashed var(--accent); border-radius: var(--radius); background: var(--accent-soft); }
 body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select: none; -webkit-user-select: none; }
+.target-change { margin-top: 6px; display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 8px;
+  background: var(--surface-3); color: var(--text-2); }
+.target-change.up { background: var(--green-soft); color: #86efac; }
