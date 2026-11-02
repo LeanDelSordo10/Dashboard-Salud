@@ -1,9 +1,11 @@
 """Genera web/assets/body-muscles.svg: figura humana frontal y dorsal con grupos musculares.
 
-Cada figura se dibuja en un lienzo de 200 x 470 con el eje en x = 100. Solo se
-define la mitad izquierda (x <= 100); la derecha se obtiene espejando, así la
-figura queda perfectamente simétrica. Cada región muscular lleva
-data-muscle="<id>" con los ids de web/assets/muscle-map.json.
+Dibujo original (no calcado de ninguna ilustración). Cada figura vive en un
+lienzo de 200 x 470 con el eje de simetría en x = 100: solo se define la mitad
+izquierda y la derecha se obtiene espejando, así la figura es perfectamente
+simétrica. Las regiones con data-muscle="<id>" usan los ids de
+web/assets/muscle-map.json; las regiones "detail" (antebrazo, tibia, rodilla,
+serrato...) completan la anatomía pero no se pintan.
 
 Uso: python scripts/build_body_svg.py
 """
@@ -11,98 +13,129 @@ import pathlib
 
 MIRROR = 'matrix(-1 0 0 1 200 0)'
 
-# ---------------------------------------------------------------- silueta
+# ------------------------------------------------------------- silueta (mitad)
 SILHOUETTE = (
-    'M100 60 L91 60 C90 68 88 72 83 75 C73 79 60 81 52 87 C42 94 38 106 38 120 '
-    'C37 136 35 152 33 168 C31 184 29 198 27 214 C25 232 23 248 21 262 '
-    'C19 272 18 282 21 290 C24 299 31 300 34 291 C36 283 35 273 37 264 '
-    'C41 246 45 228 48 210 C51 194 53 178 56 162 L59 142 '
-    'C61 162 63 180 64 196 C65 210 63 222 62 234 '
-    'C59 254 59 274 61 294 C63 322 65 346 66 370 '
-    'C65 390 63 408 65 428 C66 438 64 446 60 452 C58 458 64 462 74 461 '
-    'C82 460 86 454 86 444 C86 430 87 412 88 394 '
-    'C89 374 90 352 91 330 C93 312 96 300 100 296 Z'
+    'M100 56 L90 56 C89 64 88 69 86 72 C80 75 70 77 60 79 '
+    'C46 81 36 88 32 100 C28 110 28 122 30 132 '
+    'C28 146 27 160 28 172 C27 184 24 198 22 212 C20 226 19 238 20 248 '
+    # mano
+    'C17 254 13 261 12 270 C11 279 13 288 17 293 C20 296 24 294 25 288 '
+    'C27 281 28 273 29 266 C30 260 31 256 32 252 '
+    'C34 240 38 226 41 212 C43 200 45 190 47 180 C49 166 51 152 52 140 '
+    # torso
+    'C55 152 58 168 60 184 C62 198 63 210 62 222 C61 232 60 242 59 252 '
+    # pierna
+    'C57 272 57 292 59 312 C61 332 63 346 64 358 C63 372 61 386 62 400 '
+    'C63 414 65 426 66 436 C66 444 62 450 59 455 C58 461 68 464 79 462 '
+    'C86 461 88 456 87 450 C86 440 85 430 85 420 C86 404 88 390 89 376 '
+    'C90 364 90 356 91 348 C93 322 95 296 97 278 C98 272 99 268 100 266 Z'
 )
+
+HEAD = ('<ellipse class="silhouette" cx="100" cy="31" rx="17" ry="22"/>'
+        '<ellipse class="silhouette" cx="83" cy="33" rx="3" ry="6"/>'
+        '<ellipse class="silhouette" cx="117" cy="33" rx="3" ry="6"/>')
+
+# Detalles de manos y pies (solo líneas).
+LINES = [
+    'M15 280 L14 289', 'M19 283 L19 292', 'M23 282 L23 289',      # dedos
+    'M68 454 L67 460', 'M74 455 L74 461', 'M80 454 L80 460',       # dedos del pie
+]
 
 # ---------------------------------------------------------------- vista frontal
 FRONT = {
-    'neck': ['M92 60 C91 68 89 72 85 75 L100 79 L100 60 Z'],
-    'Hombros': ['M84 80 C72 80 58 84 50 92 C42 100 40 112 42 124 C47 118 53 112 58 108 C62 100 70 92 84 86 Z'],
-    'Pecho': ['M98 90 C88 86 72 88 62 96 C56 104 56 116 60 124 C68 130 84 132 98 128 Z'],
-    'Bíceps': ['M44 128 C40 140 38 154 39 168 C41 176 47 178 51 172 C55 160 57 146 57 132 C54 126 48 124 44 128 Z'],
-    'forearm': ['M37 182 C33 198 30 214 28 230 C27 240 28 250 30 256 C34 250 37 240 40 228 C44 212 47 196 49 182 C46 178 40 178 37 182 Z'],
+    'Espalda': ['M90 59 C89 66 87 71 84 74 C76 77 67 79 59 81 C70 84 81 85 90 84 Z'],  # trapecio superior
+    'Hombros': ['M58 84 C46 84 36 92 33 104 C31 114 32 124 34 132 C38 126 42 120 46 116 C50 106 54 96 60 88 Z'],
+    'Pecho': ['M99 90 C88 86 74 86 62 92 C54 100 50 112 52 122 C58 130 72 136 86 136 C92 136 96 134 99 132 Z'],
+    'Bíceps': ['M36 136 C33 148 32 162 34 174 C37 180 43 180 46 174 C49 162 50 148 49 138 C46 132 40 132 36 136 Z'],
+    'detail': [
+        'M33 186 C29 200 26 214 24 230 C23 238 24 246 26 250 C30 242 34 230 37 218 C40 206 43 194 45 184 C41 180 36 181 33 186 Z',  # antebrazo
+        'M55 140 C56 146 58 150 61 152 C60 146 58 142 55 140 Z',      # serrato
+        'M56 152 C57 158 59 162 62 164 C61 158 59 154 56 152 Z',
+        'M68 358 C70 366 76 370 82 370 C86 368 88 362 88 356 C82 362 74 362 68 358 Z',   # rodilla
+        'M70 378 C70 396 72 414 74 430 C78 420 81 404 82 388 C80 380 74 376 70 378 Z',   # tibia
+    ],
     'Abdominales': [
-        'M99 136 L86 138 C84 144 84 150 86 156 L99 155 Z',
-        'M99 160 L86 161 C85 167 85 173 87 179 L99 178 Z',
-        'M99 183 L87 184 C86 191 87 198 89 204 L99 204 Z',
-        'M99 209 L89 209 C89 220 92 232 99 244 Z',
+        'M99 140 L87 142 C86 148 86 154 87 158 L99 157 Z',
+        'M99 161 L87 162 C86 168 86 174 87 179 L99 178 Z',
+        'M99 182 L88 183 C87 190 87 196 88 201 L99 201 Z',
+        'M99 205 L89 205 C89 220 92 236 99 252 Z',
+        # oblicuos
+        'M84 140 C76 146 68 156 64 168 C63 184 64 200 66 214 C70 224 76 234 84 242 C86 226 86 206 85 186 C84 168 84 152 84 140 Z',
     ],
-    'Abdominales ': ['M83 138 C76 142 70 150 68 160 C67 176 69 192 72 206 C76 214 82 222 86 230 C86 210 84 186 83 166 C82 156 82 146 83 138 Z'],
     'Cuádriceps': [
-        'M64 246 C60 268 60 292 63 316 C65 336 68 352 72 362 C76 356 80 340 82 322 C84 300 82 278 77 258 C73 250 68 246 64 246 Z',
-        'M80 270 C84 290 86 314 84 338 C83 350 80 360 76 368 C82 366 88 358 90 346 C92 326 90 302 86 284 Z',
+        'M62 262 C59 284 59 306 61 328 C62 340 64 350 67 356 C71 348 73 334 74 318 C75 298 72 278 66 264 Z',  # vasto lateral
+        'M70 258 C76 276 80 298 80 320 C80 334 78 344 75 352 C80 352 84 346 86 336 C88 316 86 292 80 272 Z',  # recto femoral
+        'M85 318 C89 326 91 338 89 350 C85 356 80 356 78 352 C82 344 84 332 85 318 Z',                         # vasto medial
     ],
-    'Aductores': ['M88 256 C92 266 95 280 97 296 C94 306 92 318 91 328 C89 314 88 300 87 286 C86 274 86 262 88 256 Z'],
-    'knee': ['M68 368 C70 376 76 382 82 382 C86 378 88 372 88 366 C82 372 74 372 68 368 Z'],
-    'Gemelos': ['M66 392 C63 404 63 418 65 430 C68 424 70 412 71 400 C70 394 68 390 66 392 Z'],
-    'shin': ['M74 392 C74 408 76 424 78 440 C82 432 85 418 86 402 C84 394 78 390 74 392 Z'],
+    'Aductores': ['M84 262 C90 268 95 276 97 286 C95 298 92 310 89 320 C88 304 86 290 84 276 Z'],
+    'Gemelos': [
+        'M64 378 C61 392 61 406 63 418 C66 412 68 400 68 388 C67 382 66 378 64 378 Z',
+        'M87 378 C89 390 89 402 87 414 C85 404 84 392 85 382 Z',
+    ],
 }
 
 # ---------------------------------------------------------------- vista dorsal
 BACK = {
     'Espalda': [
-        # trapecio
-        'M100 62 L92 62 C90 70 86 76 78 80 C70 84 62 86 56 90 C68 92 80 96 90 108 C94 118 97 128 100 136 Z',
-        # dorsal ancho
-        'M60 118 C60 140 62 160 66 180 C72 196 82 208 94 214 C96 196 98 176 99 156 C92 144 84 132 74 124 C70 120 64 118 60 118 Z',
-        # lumbares
-        'M99 162 C98 182 96 202 94 218 C96 226 98 232 100 236 L100 160 Z',
+        'M100 60 L91 60 C90 67 88 72 84 75 C76 78 66 80 58 84 C70 88 82 96 90 110 C95 120 98 132 100 144 Z',  # trapecio
+        'M66 96 C60 104 56 114 56 124 C64 126 74 124 84 118 C84 110 78 102 66 96 Z',                           # infraespinoso
+        'M56 128 C56 148 58 168 62 186 C68 202 78 214 92 222 C94 204 96 184 97 166 C90 152 80 140 70 132 C66 130 60 128 56 128 Z',  # dorsal
+        'M99 150 C97 172 95 196 94 220 C96 230 98 236 100 240 L100 150 Z',                                     # lumbares
     ],
-    'Hombros': ['M54 92 C46 98 40 108 40 122 C46 118 52 114 58 112 C62 106 66 100 72 96 C66 92 60 90 54 92 Z'],
-    'Tríceps': ['M42 128 C38 142 37 156 38 170 C41 178 47 178 51 172 C55 160 56 146 56 132 C52 124 46 122 42 128 Z'],
-    'forearm': ['M37 182 C33 198 30 214 28 230 C27 240 28 250 30 256 C34 250 37 240 40 228 C44 212 47 196 49 182 C46 178 40 178 37 182 Z'],
-    'Glúteos': ['M99 240 C88 236 74 238 66 248 C60 258 60 272 66 282 C74 292 88 294 99 288 Z'],
+    'Hombros': ['M58 86 C46 86 36 94 33 106 C31 116 32 126 34 132 C40 124 46 116 52 110 C56 102 62 94 66 90 Z'],
+    'Tríceps': ['M36 136 C33 148 32 162 34 174 C37 180 43 180 46 174 C49 162 50 148 49 138 C46 132 40 132 36 136 Z'],
+    'detail': [
+        'M33 186 C29 200 26 214 24 230 C23 238 24 246 26 250 C30 242 34 230 37 218 C40 206 43 194 45 184 C41 180 36 181 33 186 Z',  # antebrazo
+        'M66 214 C64 224 63 234 63 244 C72 236 80 230 88 228 C80 224 72 220 66 214 Z',                        # oblicuo posterior
+        'M74 432 C74 440 76 448 79 452 C82 446 83 438 82 430 Z',                                              # tendón de Aquiles
+    ],
+    'Glúteos': ['M99 246 C88 240 72 242 64 254 C58 264 58 280 64 290 C72 300 88 302 99 296 Z'],
     'Isquiotibiales': [
-        'M64 292 C62 312 63 332 66 350 C68 362 72 370 76 374 C78 356 79 336 79 316 C78 304 74 296 64 292 Z',
-        'M82 300 C84 318 86 338 85 356 C84 364 82 370 80 374 C86 370 90 360 91 348 C92 330 91 312 88 298 Z',
+        'M62 300 C60 320 61 340 64 356 C66 364 70 370 74 372 C76 352 77 330 76 312 C74 304 70 300 62 300 Z',
+        'M80 304 C82 322 84 342 83 360 C82 366 80 370 78 374 C85 370 89 360 90 348 C91 330 90 314 88 302 Z',
     ],
     'Gemelos': [
-        'M67 388 C63 400 63 414 66 426 C69 432 74 432 76 424 C77 412 76 398 74 388 C72 382 69 382 67 388 Z',
-        'M78 388 C78 400 79 414 80 424 C82 430 86 428 87 420 C88 408 87 396 84 388 C82 382 79 382 78 388 Z',
+        'M64 380 C60 394 60 410 64 424 C67 430 72 430 74 422 C75 408 74 394 72 382 C70 376 66 376 64 380 Z',
+        'M77 382 C77 396 78 410 80 422 C82 428 87 426 88 418 C89 406 88 394 85 384 C83 378 79 378 77 382 Z',
     ],
 }
 
-NEUTRAL = {'neck', 'forearm', 'knee', 'shin'}
-
 
 def region(name, d):
-    name = name.strip()  # 'Abdominales ' = oblicuos, mismo grupo que el recto abdominal
-    if name in NEUTRAL:
+    if name == 'detail':
         return f'<path class="detail" d="{d}"/>'
     return f'<path class="muscle" data-muscle="{name}" d="{d}"><title>{name}</title></path>'
 
 
 def figure(parts, label, dx):
-    left = ''.join(region(n, d) for n, ds in parts.items() for d in ds)
+    half = ''.join(region(n, d) for n, ds in parts.items() for d in ds)
+    half += ''.join(f'<path class="line" d="{d}"/>' for d in LINES)
     return (
         f'<g transform="translate({dx} 0)" aria-label="{label}">'
-        f'<ellipse class="silhouette" cx="100" cy="34" rx="19" ry="24"/>'
+        f'<g filter="url(#outline)">{HEAD}'
         f'<path class="silhouette" d="{SILHOUETTE}"/>'
-        f'<path class="silhouette" d="{SILHOUETTE}" transform="{MIRROR}"/>'
-        f'<g>{left}</g><g transform="{MIRROR}">{left}</g>'
-        f'<text class="caption" x="100" y="468" text-anchor="middle">{label}</text>'
+        f'<path class="silhouette" d="{SILHOUETTE}" transform="{MIRROR}"/></g>'
+        f'<g>{half}</g><g transform="{MIRROR}">{half}</g>'
+        f'<text class="caption" x="100" y="476" text-anchor="middle">{label}</text>'
         '</g>'
     )
 
 
 def build():
     svg = (
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 476" role="img" '
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 484" role="img" '
         'aria-label="Mapa muscular: vista frontal y dorsal">'
-        '<style>.silhouette{fill:#1e252e}'
-        '.detail{fill:#222a34;stroke:#3a4553;stroke-width:.8}'
-        '.muscle{fill:#2a333f;stroke:#46525f;stroke-width:.8;transition:fill .3s}'
-        '.caption{fill:#8592a3;font:600 13px Inter,system-ui,sans-serif;letter-spacing:.12em}</style>'
+        '<defs><filter id="outline" x="-5%" y="-5%" width="110%" height="110%">'
+        '<feMorphology in="SourceAlpha" operator="dilate" radius="1.1" result="d"/>'
+        '<feFlood flood-color="#6f7c8c"/><feComposite in2="d" operator="in" result="o"/>'
+        '<feMerge><feMergeNode in="o"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>'
+        '<style>'
+        '.silhouette{fill:#38424f}'
+        '.detail{fill:#38424f;stroke:#5d6a79;stroke-width:.7;stroke-linejoin:round}'
+        '.muscle{fill:#3b4653;stroke:#6b7888;stroke-width:.8;stroke-linejoin:round;transition:fill .3s}'
+        '.line{fill:none;stroke:#55616f;stroke-width:.7;stroke-linecap:round}'
+        '.caption{fill:#8592a3;font:600 13px Inter,system-ui,sans-serif;letter-spacing:.12em}'
+        '</style>'
         + figure(FRONT, 'FRENTE', 0)
         + figure(BACK, 'ESPALDA', 240)
         + '</svg>'
