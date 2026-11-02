@@ -32,7 +32,7 @@ export function muscleMap(muscles = [], { legend = true, compact = false } = {})
     const c = color(id);
     const zone = MAP.areas?.find((a) => a.id === area)?.label ?? area;
     const title = `${zone} · ${muscleInfo(id)?.label ?? id}: ${fmt(sets.get(id) || 0)} series`;
-    return `<path class="muscle" data-muscle="${id}" data-area="${area}"${rest} style="${c ? `fill:${c};stroke:#ff8095` : ''}"><title>${esc(title)}</title>`;
+    return `<path class="muscle" data-muscle="${id}" data-area="${area}"${rest} style="${c ? `fill:${c}` : ''}"><title>${esc(title)}</title>`;
   });
 
   const order = MAP.muscles.length ? MAP.muscles.map((m) => m.id) : [...sets.keys()];
@@ -41,5 +41,6 @@ export function muscleMap(muscles = [], { legend = true, compact = false } = {})
     ? `<ul class="muscle-legend">${worked.map((id) => `<li title="${esc(muscleInfo(id)?.scientific ?? '')}"><span class="sw" style="background:${color(id)}"></span>${esc(muscleInfo(id)?.label ?? id)}<b>${fmt(sets.get(id))}</b></li>`).join('')}</ul>`
     : '';
   const scale = worked.length ? '<div class="muscle-scale"><span>Menos series</span><i></i><span>Más series</span></div>' : '';
-  return `<div class="muscle-map ${compact ? 'compact' : ''}">${SVG ? `<div class="body-figure">${svg}</div>` : ''}${scale}${leg}</div>`;
+  const credit = SVG ? '<p class="muscle-credit">Ilustración: <a href="https://www.figma.com/community/file/1320468164820924031" target="_blank" rel="noopener">Ryan Graves</a> · <a href="https://creativecommons.org/licenses/by/4.0/deed.es" target="_blank" rel="noopener">CC BY 4.0</a> (modificada)</p>' : '';
+  return `<div class="muscle-map ${compact ? 'compact' : ''}">${SVG ? `<div class="body-figure">${svg}</div>` : ''}${scale}${leg}${credit}</div>`;
 }
