@@ -9,6 +9,7 @@ import workout from './pages/workout.js';
 import weight from './pages/weight.js';
 import health from './pages/health.js';
 import settings from './pages/settings.js';
+import { loadMuscleAssets } from './muscle-map.js';
 
 const ROUTES = {
   resumen: { title: 'Resumen', page: summary },
@@ -146,6 +147,7 @@ async function enterApp() {
     if (err.status === 401) { showAuth('login'); return; }
     // Otros errores (sin conexión): igual se entra y cada página muestra su error.
   }
+  await loadMuscleAssets();
   const user = await currentUser();
   $('#userEmail').textContent = user?.email ?? '';
   $('#auth').hidden = true;

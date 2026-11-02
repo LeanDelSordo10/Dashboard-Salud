@@ -1,0 +1,33 @@
+{
+  "version": 2,
+  "description": "Grupos musculares del dashboard. 'id' coincide con exercises.primary_muscle / secondary_muscles en la base y con data-muscle en body-muscles.svg.",
+  "regions": [
+    { "id": "upper", "label": "Tren superior" },
+    { "id": "core", "label": "Core" },
+    { "id": "lower", "label": "Tren inferior" }
+  ],
+  "muscles": [
+    { "id": "Pecho", "label": "Pecho", "scientific": "Pectoral mayor y menor", "region": "upper", "views": ["front"],
+      "aliases": ["pectoral", "banca", "press banca", "inclinado", "pec deck", "mariposa", "crossover", "cruce de poleas", "aperturas"] },
+    { "id": "Espalda", "label": "Espalda", "scientific": "Dorsal ancho, trapecio, romboides y erectores", "region": "upper", "views": ["back"],
+      "aliases": ["dorsal", "dorsales", "trapecio", "remo", "jalón", "jalon", "tracción", "traccion", "dominadas", "pullover", "lumbares"] },
+    { "id": "Hombros", "label": "Hombros", "scientific": "Deltoides anterior, medio y posterior", "region": "upper", "views": ["front", "back"],
+      "aliases": ["deltoides", "hombro", "militar", "press militar", "vuelos laterales", "elevaciones laterales", "deltoides posterior", "face pull"] },
+    { "id": "Bíceps", "label": "Bíceps", "scientific": "Bíceps braquial y braquial anterior", "region": "upper", "views": ["front"],
+      "aliases": ["biceps", "curl", "curl martillo", "curl inclinado", "curl scott", "predicador"] },
+    { "id": "Tríceps", "label": "Tríceps", "scientific": "Tríceps braquial", "region": "upper", "views": ["back"],
+      "aliases": ["triceps", "extensión de tríceps", "tríceps polea", "trasnuca", "sobre cabeza", "fondos", "press francés"] },
+    { "id": "Abdominales", "label": "Abdominales", "scientific": "Recto abdominal, oblicuos y transverso", "region": "core", "views": ["front"],
+      "aliases": ["abdomen", "abs", "core", "plancha", "crunch", "oblicuos"] },
+    { "id": "Glúteos", "label": "Glúteos", "scientific": "Glúteo mayor y medio", "region": "lower", "views": ["back"],
+      "aliases": ["gluteo", "glúteo", "gluteos", "hip thrust", "patada de glúteo", "máquina de glúteos"] },
+    { "id": "Cuádriceps", "label": "Cuádriceps", "scientific": "Recto femoral y vastos", "region": "lower", "views": ["front"],
+      "aliases": ["cuadriceps", "prensa", "press de piernas", "sentadilla", "extensión de piernas", "extensión de cuádriceps", "estocadas"] },
+    { "id": "Isquiotibiales", "label": "Isquiotibiales", "scientific": "Bíceps femoral, semitendinoso y semimembranoso", "region": "lower", "views": ["back"],
+      "aliases": ["femoral", "femorales", "isquios", "curl femoral", "leg curl", "peso muerto rumano"] },
+    { "id": "Aductores", "label": "Aductores", "scientific": "Aductor mayor, largo y corto", "region": "lower", "views": ["front"],
+      "aliases": ["aductor", "sentadilla sumo", "máquina de aductores"] },
+    { "id": "Gemelos", "label": "Gemelos", "scientific": "Gastrocnemio y sóleo", "region": "lower", "views": ["front", "back"],
+      "aliases": ["gemelo", "pantorrilla", "pantorrillas", "elevación de talones"] }
+  ]
+}
