@@ -480,7 +480,17 @@ async function workoutToday(day: string, date: string) {
   const cat = await loadCatalog();
   const routines = await q<any[]>(db.from('routine_templates').select('id').eq('active', true).order('created_at').limit(1));
   if (!routines.length) return { day, date, session: null, items: [], catalog: [] };
-  const items = await q<any[]>(db.from('routine_exercises').select('position,exercise_id,target_sets,target_reps_min,target_reps_max,target_weight_kg,notes').eq('routine_id', routines[0].id).eq('day_code', day).order('position'));
+  // Antes de mostrar la rutina se sincronizan los objetivos con las últimas 3 sesiones
+  // (por si se cargaron o corrigieron entrenamientos desde otra pantalla).
+  const planned = await q<any[]>(db.from('routine_exercises').select('exercise_id').eq('routine_id', routines[0].id).eq('day_code', day));
+  await Promise.all(planned.map((p) => autoUpdateTarget(day, p.exercise_id).catch((err) => console.error('autoUpdateTarget', err))));
+  const items = await q<any[]>(db.from('routine_exercises').select('id,position,exercise_id,target_sets,target_reps_min,target_reps_max,target_weight_kg,notes').eq('routine_id', routines[0].id).eq('day_code', day).order('position'));
+  // Último ajuste automático de objetivo de cada ejercicio (últimas 3 semanas).
+  const changes = items.length ? await q<any[]>(db.from('routine_target_changes').select('routine_exercise_id,changed_at,before,after')
+    .in('routine_exercise_id', items.map((i) => i.id)).gte('changed_at', new Date(Date.now() - 21 * 86400000).toISOString())
+    .order('changed_at', { ascending: false })) : [];
+  const changeBy = new Map<number, any>();
+  for (const c of changes) if (!changeBy.has(c.routine_exercise_id)) changeBy.set(c.routine_exercise_id, c);
   const sessions = await q<any[]>(db.from('workout_sessions').select('id,date,title,status').eq('date', date).eq('title', day).order('created_at', { ascending: false }).limit(1));
   const session = sessions[0] ?? null;
   const saved = session ? await q<any[]>(db.from('workout_sets').select('exercise_id,planned_exercise_id,set_number,weight_kg,reps,duration_s').eq('session_id', session.id).order('set_number')) : [];
@@ -506,12 +516,76 @@ async function workoutToday(day: string, date: string) {
         position: i.position, exercise_id: i.exercise_id, name: ex?.name ?? 'Ejercicio', muscle: ex?.primary_muscle ?? null,
         measurement_type: ex?.measurement_type ?? 'weight_reps',
         target: { sets: i.target_sets, reps_min: i.target_reps_min, reps_max: i.target_reps_max, weight_kg: num(i.target_weight_kg) },
+        target_change: changeBy.get(i.id) ?? null,
         last: last ? { date: last.date, sets: last.sets } : null,
         saved: mine.length ? { exercise_id: mine[0].exercise_id, sets: mine.map((s) => setOut(mine[0].exercise_id, s)) } : null,
       };
     }),
     catalog: cat.rows.filter((e) => e.active).map((e) => ({ id: e.id, name: e.name, muscle: e.primary_muscle, measurement_type: e.measurement_type })),
   };
+}
+
+// ------------------------------------------- objetivos que se ajustan solos
+
+const SESSIONS_TO_CONFIRM = 3;
+
+/** Resumen de lo hecho en un ejercicio durante una sesión. */
+function sessionSummary(sets: any[], timed: boolean) {
+  if (timed) return { sets: sets.length, weight: null, reps: null };
+  const withWeight = sets.filter((s) => num(s.weight_kg) !== null);
+  const top = withWeight.length ? Math.max(...withWeight.map((s) => num(s.weight_kg)!)) : null;
+  // Repeticiones logradas con el peso de trabajo (el más alto): se toma la menor,
+  // así el objetivo refleja lo que se logró en TODAS las series con ese peso.
+  const atTop = top === null ? sets : withWeight.filter((s) => num(s.weight_kg) === top);
+  const reps = atTop.map((s) => num(s.reps)).filter((r): r is number => r !== null && r > 0);
+  return { sets: sets.length, weight: top, reps: reps.length ? Math.min(...reps) : null };
+}
+
+/**
+ * Si en las últimas 3 sesiones de un día de rutina (p. ej. "Upper A") el ejercicio
+ * se hizo con el mismo peso, las mismas repeticiones o la misma cantidad de series,
+ * ese valor pasa a ser el nuevo objetivo. Cada dato se evalúa por separado.
+ * Devuelve el cambio aplicado (o null) y lo deja registrado en routine_target_changes.
+ */
+async function autoUpdateTarget(day: string, exerciseId: string) {
+  const routines = await q<any[]>(db.from('routine_templates').select('id').eq('active', true).order('created_at').limit(1));
+  if (!routines.length) return null;
+  const items = await q<any[]>(db.from('routine_exercises').select('id,target_sets,target_reps_min,target_reps_max,target_weight_kg')
+    .eq('routine_id', routines[0].id).eq('day_code', day).eq('exercise_id', exerciseId).limit(1));
+  if (!items.length) return null;
+  const item = items[0];
+  const ex = await q<any[]>(db.from('exercises').select('measurement_type').eq('id', exerciseId).limit(1));
+  const timed = ex[0]?.measurement_type === 'duration';
+  // Series del ejercicio tal como estaba planificado (no cuentan los cambios de máquina).
+  const rows = await q<any[]>(db.from('workout_set_history').select('session_id,performed_at,set_number,weight_kg,reps')
+    .eq('exercise_id', exerciseId).eq('planned_exercise_id', exerciseId).eq('session_title', day)
+    .order('performed_at', { ascending: false }).order('set_number').limit(300));
+  const bySession = new Map<string, { date: string; sets: any[] }>();
+  for (const r of rows) {
+    if (!bySession.has(r.session_id)) {
+      if (bySession.size === SESSIONS_TO_CONFIRM) break;
+      bySession.set(r.session_id, { date: r.performed_at, sets: [] });
+    }
+    bySession.get(r.session_id)!.sets.push(r);
+  }
+  if (bySession.size < SESSIONS_TO_CONFIRM) return null;
+  const sums = [...bySession.values()].map((s) => sessionSummary(s.sets, timed));
+  const same = (k: 'sets' | 'weight' | 'reps') => sums.every((s) => s[k] !== null && s[k] === sums[0][k]) ? sums[0][k] : null;
+  const sets = same('sets'), weight = same('weight'), reps = same('reps');
+
+  const before = { sets: item.target_sets, reps_min: item.target_reps_min, reps_max: item.target_reps_max, weight_kg: num(item.target_weight_kg) };
+  const after = { ...before };
+  if (sets !== null) after.sets = sets;
+  if (!timed && weight !== null) after.weight_kg = weight;
+  if (!timed && reps !== null) { after.reps_min = reps; after.reps_max = reps; }
+  if (JSON.stringify(after) === JSON.stringify(before)) return null;
+
+  await q(db.from('routine_exercises').update({
+    target_sets: after.sets, target_reps_min: after.reps_min, target_reps_max: after.reps_max, target_weight_kg: after.weight_kg,
+  }).eq('id', item.id));
+  const sessions = [...bySession.entries()].map(([id, s], i) => ({ id, date: s.date, ...sums[i] }));
+  await q(db.from('routine_target_changes').insert({ routine_exercise_id: item.id, before, after, sessions }));
+  return { before, after };
 }
 
 /** Guarda el nuevo orden de los ejercicios de un día de la rutina. */
@@ -544,7 +618,7 @@ async function saveExerciseSets(sid: string, body: any) {
   if (!UUID_RE.test(sid)) throw new HttpError(400, 'Sesión inválida');
   const exerciseId = String(body?.exercise_id ?? ''), planned = String(body?.planned_exercise_id ?? '');
   if (!UUID_RE.test(exerciseId) || !UUID_RE.test(planned)) throw new HttpError(400, 'Ejercicio inválido');
-  const ses = await q<any[]>(db.from('workout_sessions').select('id').eq('id', sid).limit(1));
+  const ses = await q<any[]>(db.from('workout_sessions').select('id,title').eq('id', sid).limit(1));
   if (!ses.length) throw new HttpError(404, 'La sesión no existe');
   const ex = await q<any[]>(db.from('exercises').select('id,measurement_type').eq('id', exerciseId).limit(1));
   if (!ex.length) throw new HttpError(400, 'Ejercicio inválido');
@@ -568,7 +642,12 @@ async function saveExerciseSets(sid: string, body: any) {
   if (!rows.length) throw new HttpError(400, 'Cargá al menos una serie');
   await q(db.from('workout_sets').delete().eq('session_id', sid).eq('planned_exercise_id', planned));
   await q(db.from('workout_sets').insert(rows));
-  return { ok: true, sets: rows.length };
+  // Con cada guardado se revisa si el objetivo de la rutina debe actualizarse.
+  let target_update = null;
+  if (exerciseId === planned && DAY_CODES.includes(ses[0].title)) {
+    try { target_update = await autoUpdateTarget(ses[0].title, planned); } catch (err) { console.error('autoUpdateTarget', err); }
+  }
+  return { ok: true, sets: rows.length, target_update };
 }
 
 async function setWorkoutStatus(sid: string, status: 'completed' | 'open') {

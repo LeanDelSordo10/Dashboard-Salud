@@ -60,11 +60,23 @@ export default async function workout(view, { params, setSub }) {
           <button class="rm" title="Quitar serie" aria-label="Quitar serie">✕</button></div>`;
   }
 
+  function targetText(t) {
+    const reps = t.reps_min ? (t.reps_max && t.reps_max !== t.reps_min ? `${t.reps_min}–${t.reps_max}` : t.reps_min) : null;
+    return [t.sets ? `${t.sets} series` : null, reps ? `${reps} reps` : null, t.weight_kg ? `${fmt(t.weight_kg)} kg` : null].filter(Boolean).join(' · ');
+  }
+  /** Etiqueta que avisa que el objetivo se actualizó solo (lo repetido en 3 sesiones). */
+  function changeBadge(c) {
+    if (!c) return '';
+    const b = c.before, a = c.after;
+    const up = (a.weight_kg ?? 0) > (b.weight_kg ?? 0) || (a.reps_min ?? 0) > (b.reps_min ?? 0) || (a.sets ?? 0) > (b.sets ?? 0);
+    const when = c.changed_at ? fmtDate(c.changed_at.slice(0, 10)) : 'ahora';
+    return `<div class="target-change ${up ? 'up' : ''}" title="Antes: ${esc(targetText(b))}">🎯 Objetivo actualizado ${when} · antes ${esc(targetText(b))}</div>`;
+  }
+
   function cardHTML(it, idx) {
     const timed = it.measurement_type === 'duration';
     const t = it.target;
-    const reps = t.reps_min ? (t.reps_max && t.reps_max !== t.reps_min ? `${t.reps_min}–${t.reps_max}` : t.reps_min) : null;
-    const target = [t.sets ? `${t.sets} series` : null, reps ? `${reps} reps` : null, t.weight_kg ? `${fmt(t.weight_kg)} kg` : null].filter(Boolean).join(' · ');
+    const target = targetText(t);
     const lastTxt = it.last ? `<b>Último (${fmtDate(it.last.date)}):</b> ${it.last.sets.map((s) => (timed ? `${fmt(s.duration_s, 0)} s` : `${fmt(s.weight_kg)}×${s.reps ?? '—'}`)).join(' · ')}` : 'Sin registros anteriores de este ejercicio.';
     // Si ya se guardó, se muestran las series guardadas; si no, el peso del último registro como sugerencia.
     const rows = it.saved?.sets?.length
@@ -79,7 +91,8 @@ export default async function workout(view, { params, setSub }) {
         <button type="button" class="drag-handle" aria-label="Mover ${esc(it.name)}. Usá las flechas para subir o bajar" title="Arrastrá para cambiar el orden">⠿</button>
         <div class="ex-num">${it.saved ? '✓' : idx + 1}</div>
         <div class="ex-title"><b class="ex-name">${esc(data.catalog.find((c) => c.id === chosen)?.name ?? it.name)}</b>
-          <div class="ex-meta">${it.muscle ? `<span>${esc(it.muscle)}</span>` : ''}${target ? `<span>Objetivo: ${target}</span>` : ''}</div></div></div>
+          <div class="ex-meta">${it.muscle ? `<span>${esc(it.muscle)}</span>` : ''}${target ? `<span class="ex-target">Objetivo: ${target}</span>` : ''}</div>
+          ${changeBadge(it.target_change)}</div></div>
       <div class="ex-last">${lastTxt}</div>
       <div class="set-head ${timed ? 'timed' : ''}"><span>#</span>${timed ? '<span>Duración</span>' : '<span>Kilos</span><span>Reps</span>'}<span></span></div>
       <div class="set-grid">${rows.join('')}</div>
@@ -291,6 +304,14 @@ export default async function workout(view, { params, setSub }) {
       $('.ex-num', card).textContent = '✓';
       st.className = 'status ok';
       st.textContent = `✓ Guardado (${r.sets} series)${incomplete ? ` · ${incomplete} sin reps no se guardaron` : ''}`;
+      if (r.target_update) {
+        it.target = { sets: r.target_update.after.sets, reps_min: r.target_update.after.reps_min, reps_max: r.target_update.after.reps_max, weight_kg: r.target_update.after.weight_kg };
+        it.target_change = { ...r.target_update, changed_at: null };
+        const tgt = $('.ex-target', card); if (tgt) tgt.textContent = `Objetivo: ${targetText(it.target)}`;
+        $('.target-change', card)?.remove();
+        $('.ex-title', card).insertAdjacentHTML('beforeend', changeBadge(it.target_change));
+        toast(`🎯 Nuevo objetivo en ${it.name}: ${targetText(it.target)}`);
+      }
       btn.textContent = 'Actualizar';
       if (navigator.vibrate) navigator.vibrate(30);
       progress();
