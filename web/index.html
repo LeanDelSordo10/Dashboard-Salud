@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src https://yqqpdmqykcdwqovbnato.supabase.co https://cdn.jsdelivr.net; manifest-src 'self'; worker-src 'self'; base-uri 'self'; form-action 'self'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#0b0e12">
+  <meta name="description" content="Dashboard personal de salud, fuerza y peso.">
+  <title>Dashboard Salud</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="css/app.css?v=2026.11.01">
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js" defer></script>
+</head>
+<body>
+  <!-- Login -->
+  <div id="auth" class="auth" hidden>
+    <div class="auth-card">
+      <div class="brand big"><div class="brand-mark">DS</div><div><b>Dashboard Salud</b><small>Salud y rendimiento</small></div></div>
+      <form id="authForm" autocomplete="on" novalidate>
+        <h1 id="authTitle">Ingresar</h1>
+        <p class="muted" id="authSub">Acceso privado.</p>
+        <label class="field"><span>Email</span><input id="authEmail" type="email" autocomplete="username" required></label>
+        <label class="field" id="authPassWrap"><span>Contraseña</span><input id="authPass" type="password" autocomplete="current-password" minlength="8" required></label>
+        <button class="btn primary block" id="authSubmit" type="submit">Ingresar</button>
+        <p class="form-msg" id="authMsg" role="status"></p>
+        <div class="auth-links">
+          <button type="button" class="link" data-auth-mode="reset">Olvidé mi contraseña</button>
+          <button type="button" class="link" data-auth-mode="signup">Crear cuenta</button>
+          <button type="button" class="link" data-auth-mode="login" hidden>Volver a ingresar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- App -->
+  <div id="app" class="app-shell" hidden>
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><div class="brand-mark">DS</div><div class="brand-text"><b>Dashboard Salud</b><small>Salud y rendimiento</small></div></div>
+      <nav class="nav" id="nav">
+        <div class="nav-label">Resumen</div>
+        <a href="#/resumen" data-route="resumen"><i>▦</i>Principal</a>
+        <a href="#/evolucion" data-route="evolucion"><i>↗</i>Evolución global</a>
+        <div class="nav-label">Fuerza</div>
+        <a href="#/registrar" data-route="registrar" class="nav-cta"><i>＋</i>Registrar entrenamiento</a>
+        <a href="#/fuerza" data-route="fuerza"><i>◆</i>Análisis de fuerza</a>
+        <a href="#/sesiones" data-route="sesiones"><i>☰</i>Sesiones</a>
+        <div class="nav-label">Cuerpo y salud</div>
+        <a href="#/peso" data-route="peso"><i>⚖</i>Peso corporal</a>
+        <a href="#/salud" data-route="salud"><i>♥</i>Pasos, sueño y recuperación</a>
+        <div class="nav-label">Cuenta</div>
+        <a href="#/configuracion" data-route="configuracion"><i>⚙</i>Configuración</a>
+      </nav>
+      <div class="sidebar-foot"><span class="dot ok"></span><span id="userEmail" class="muted small"></span></div>
+    </aside>
+    <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+    <div class="main">
+      <header class="topbar">
+        <button class="icon-btn menu-btn" id="menuBtn" aria-label="Menú">☰</button>
+        <div class="top-title"><h1 id="pageTitle">Resumen</h1><span id="pageSub" class="muted small"></span></div>
+        <div class="top-actions">
+          <span class="updated muted small" id="updatedAt"></span>
+          <button class="icon-btn" id="refreshBtn" title="Actualizar datos" aria-label="Actualizar datos">↻</button>
+          <a class="btn primary hide-sm" href="#/registrar">＋ Registrar</a>
+        </div>
+      </header>
+      <main id="view" class="view" tabindex="-1"></main>
+    </div>
+
+    <nav class="bottom-nav" aria-label="Navegación principal">
+      <a href="#/resumen" data-route="resumen"><i>▦</i><span>Resumen</span></a>
+      <a href="#/fuerza" data-route="fuerza"><i>◆</i><span>Fuerza</span></a>
+      <a href="#/registrar" data-route="registrar" class="fab"><i>＋</i><span>Registrar</span></a>
+      <a href="#/peso" data-route="peso"><i>⚖</i><span>Peso</span></a>
+      <button id="moreBtn"><i>☰</i><span>Más</span></button>
+    </nav>
+  </div>
+
+  <aside id="drawer" class="drawer" aria-live="polite"></aside>
+  <div class="drawer-backdrop" id="drawerBackdrop"></div>
+  <dialog id="dialog" class="dialog"></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="js/app.js?v=2026.11.01"></script>
+</body>
+</html>

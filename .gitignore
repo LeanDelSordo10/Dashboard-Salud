@@ -1,5 +1,22 @@
+# Secretos y entornos
 .env
+.env.*
+*.pem
+*.key
+
+# Datos personales: nunca se versionan (el repo es público)
+Datos historicos/
+datos/
+*.sql
+!supabase/migrations/*.sql
+*.fit
+*.csv
+supabase_json/
+
+# Python / herramientas
 __pycache__/
 *.pyc
 .vercel/
 data/*.db
+node_modules/
+.DS_Store
