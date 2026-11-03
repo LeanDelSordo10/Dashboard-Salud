@@ -1,4 +1,4 @@
-import { supabase, currentUser, signIn, signUp, resetPassword, updatePassword, signOut, onAuthChange } from './auth.js';
+import { supabase, LOCK_AFTER_MIN, currentUser, signIn, signUp, resetPassword, updatePassword, signOut, onAuthChange } from './auth.js';
 import { api } from './api.js';
 import { $, $$, toast, disposeCharts, closeDrawer, errorState } from './ui.js';
 import summary from './pages/summary.js';
@@ -77,7 +77,20 @@ setInterval(updateStamp, 30000);
 
 // Los datos se vuelven a leer al volver a la app (si pasó más de 1 minuto),
 // salvo en la pantalla de registro para no pisar lo que se está cargando.
-document.addEventListener('visibilitychange', () => {
+// Si la app quedó en segundo plano más de LOCK_AFTER_MIN minutos, se cierra la
+// sesión y se vuelve a pedir el login (útil en el celular, donde la app no se cierra).
+let hiddenAt = 0;
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
+  // No se bloquea si hay series cargadas sin guardar en el registro de entrenamiento.
+  const unsaved = current === 'registrar' && document.querySelector('.ex-card.dirty');
+  if (hiddenAt && Date.now() - hiddenAt > LOCK_AFTER_MIN * 60000 && !$('#app').hidden && !unsaved) {
+    hiddenAt = 0;
+    await signOut();
+    showAuth('login', 'Por seguridad, volvé a ingresar.');
+    return;
+  }
+  hiddenAt = 0;
   if (document.visibilityState === 'visible' && !$('#app').hidden && current !== 'registrar' && Date.now() - lastLoad > 60000) render({ keepScroll: true });
 });
 

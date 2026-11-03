@@ -365,3 +365,5 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; user-select:
 .target-change.up { background: var(--green-soft); color: #86efac; }
 .muscle-credit { margin: 0; text-align: center; font-size: 10.5px; color: var(--muted); opacity: .8; }
 .muscle-credit a { color: inherit; }
+.ico { width: 1.15em; height: 1.15em; display: inline-block; vertical-align: -0.2em; }
+.bottom-nav .ico { width: 22px; height: 22px; }
