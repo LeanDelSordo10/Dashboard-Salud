@@ -38,12 +38,6 @@ export async function signIn(email, password) {
   if (error) throw new Error(translate(error.message));
 }
 
-export async function signUp(email, password) {
-  const { data, error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: redirectTo() } });
-  if (error) throw new Error(translate(error.message));
-  return data;
-}
-
 export async function resetPassword(email) {
   const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: redirectTo() });
   if (error) throw new Error(translate(error.message));

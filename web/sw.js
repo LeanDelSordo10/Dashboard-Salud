@@ -2,7 +2,7 @@
 // Estrategia "red primero" para la interfaz (siempre la última versión publicada,
 // con copia de respaldo si no hay conexión). Los datos de la API NUNCA se guardan
 // en caché: solo se cachean archivos propios de la app (mismo origen).
-const CACHE = 'ds-shell-v2';
+const CACHE = 'ds-shell-v3';
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => {

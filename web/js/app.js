@@ -1,4 +1,4 @@
-import { supabase, LOCK_AFTER_MIN, currentUser, signIn, signUp, resetPassword, updatePassword, signOut, onAuthChange } from './auth.js';
+import { supabase, LOCK_AFTER_MIN, currentUser, signIn, resetPassword, updatePassword, signOut, onAuthChange } from './auth.js';
 import { api } from './api.js';
 import { $, $$, toast, disposeCharts, closeDrawer, errorState } from './ui.js';
 import summary from './pages/summary.js';
@@ -116,7 +116,6 @@ function setAuthMode(mode) {
   authMode = mode;
   const cfg = {
     login: ['Ingresar', 'Acceso privado.', 'Ingresar', true, 'current-password'],
-    signup: ['Crear cuenta', 'Solo el email autorizado puede ver los datos.', 'Crear cuenta', true, 'new-password'],
     reset: ['Recuperar contraseña', 'Te enviamos un enlace para crear una nueva.', 'Enviar enlace', false, ''],
     newpass: ['Nueva contraseña', 'Elegí una contraseña de al menos 8 caracteres.', 'Guardar contraseña', true, 'new-password'],
   }[mode];
@@ -140,11 +139,6 @@ $('#authForm').onsubmit = async (e) => {
   btn.disabled = true;
   try {
     if (authMode === 'login') { await signIn(email, pass); await enterApp(); }
-    if (authMode === 'signup') {
-      const r = await signUp(email, pass);
-      if (r?.session) await enterApp();
-      else { setAuthMode('login'); setAuthMsg('Listo. Te enviamos un email para confirmar la cuenta. Después volvé y ingresá.', 'ok'); }
-    }
     if (authMode === 'reset') { await resetPassword(email); setAuthMsg('Si el email existe, te llegó un enlace para cambiar la contraseña.', 'ok'); }
     if (authMode === 'newpass') { await updatePassword(pass); toast('Contraseña actualizada'); await enterApp(); }
   } catch (err) {
