@@ -1,0 +1,24 @@
+name: "Garmin: prueba de lectura"
+
+# Se corre a mano. Solo lee y muestra la estructura de los datos (nunca valores).
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install --quiet requests==2.32.3
+      - name: Leer datos de prueba
+        env:
+          GARMIN_PERSONAL_API_KEY: ${{ secrets.GARMIN_PERSONAL_API_KEY }}
+        run: python scripts/garmin_probe.py
