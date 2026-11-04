@@ -29,7 +29,7 @@ def shape(v, depth=0):
         inner = shape(v[0], depth + 1) if v else '-'
         return f'lista[{len(v)}] de {inner}'
     if isinstance(v, dict):
-        if depth >= 3:
+        if depth >= 4:
             return f'objeto({len(v)} campos)'
         parts = []
         for k in sorted(v)[:40]:
