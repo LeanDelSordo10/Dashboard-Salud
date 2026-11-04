@@ -521,8 +521,34 @@ async function workoutToday(day: string, date: string) {
         saved: mine.length ? { exercise_id: mine[0].exercise_id, sets: mine.map((s) => setOut(mine[0].exercise_id, s)) } : null,
       };
     }),
-    catalog: cat.rows.filter((e) => e.active).map((e) => ({ id: e.id, name: e.name, muscle: e.primary_muscle, measurement_type: e.measurement_type })),
+    catalog: cat.rows.filter((e) => e.active).map(catalogItem),
   };
+}
+
+const catalogItem = (e: Exercise) => ({ id: e.id, name: e.name, muscle: e.primary_muscle, equipment: e.equipment, measurement_type: e.measurement_type });
+
+// Grupos musculares válidos (los mismos ids de web/assets/muscle-map.json).
+const MUSCLES = ['Pecho', 'Espalda', 'Hombros', 'Bíceps', 'Tríceps', 'Abdominales', 'Glúteos', 'Cuádriceps', 'Isquiotibiales', 'Aductores', 'Gemelos'];
+const MEASUREMENTS = ['weight_reps', 'duration'];
+/** Nombre comparable: sin tildes, minúsculas y espacios simples. */
+const normName = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+/** Crea un ejercicio en el catálogo. Si ya existe uno con el mismo nombre (sin importar tildes), avisa con 409. */
+async function createExercise(body: any) {
+  const name = String(body?.name ?? '').replace(/\s+/g, ' ').trim();
+  if (name.length < 2 || name.length > 80) throw new HttpError(400, 'El nombre debe tener entre 2 y 80 caracteres');
+  const muscle = String(body?.muscle ?? '');
+  if (!MUSCLES.includes(muscle)) throw new HttpError(400, 'Elegí un grupo muscular');
+  const mtype = String(body?.measurement_type ?? 'weight_reps');
+  if (!MEASUREMENTS.includes(mtype)) throw new HttpError(400, 'Forma de medir inválida');
+  const equipment = String(body?.equipment ?? '').replace(/\s+/g, ' ').trim().slice(0, 60) || null;
+  const cat = await loadCatalog();
+  const dup = cat.rows.find((e) => normName(e.name) === normName(name));
+  if (dup) throw new HttpError(409, `Ya existe "${dup.name}"`);
+  const rows = await q<Exercise[]>(db.from('exercises')
+    .insert({ name, primary_muscle: muscle, secondary_muscles: [], equipment, measurement_type: mtype, active: true })
+    .select('id,name,primary_muscle,secondary_muscles,equipment,measurement_type,active'));
+  return { ok: true, exercise: catalogItem(rows[0]) };
 }
 
 // ------------------------------------------- objetivos que se ajustan solos
@@ -747,6 +773,7 @@ async function route(req: Request, path: string[], url: URL) {
     return workoutToday(url.searchParams.get('day') ?? '', date);
   }
   if (m === 'PUT' && a === 'routine' && b === 'order') return saveRoutineOrder(body);
+  if (m === 'POST' && a === 'exercises' && !b) return createExercise(body);
   if (m === 'POST' && a === 'workouts' && !b) return createOrResumeWorkout(body);
   if (m === 'PUT' && a === 'workouts' && b && c === 'exercise') return saveExerciseSets(b, body);
   if (m === 'POST' && a === 'workouts' && b && c === 'finish') return setWorkoutStatus(b, 'completed');
