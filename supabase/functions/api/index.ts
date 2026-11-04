@@ -493,24 +493,19 @@ async function workoutToday(day: string, date: string) {
   for (const c of changes) if (!changeBy.has(c.routine_exercise_id)) changeBy.set(c.routine_exercise_id, c);
   const sessions = await q<any[]>(db.from('workout_sessions').select('id,date,title,status').eq('date', date).eq('title', day).order('created_at', { ascending: false }).limit(1));
   const session = sessions[0] ?? null;
-  const saved = session ? await q<any[]>(db.from('workout_sets').select('exercise_id,planned_exercise_id,set_number,weight_kg,reps,duration_s').eq('session_id', session.id).order('set_number')) : [];
+  const saved = session ? await q<any[]>(db.from('workout_sets').select('id,exercise_id,planned_exercise_id,set_number,weight_kg,reps,duration_s').eq('session_id', session.id).order('id')) : [];
+  const savedSets = (planned: string) => saved.filter((s) => (s.planned_exercise_id ?? s.exercise_id) === planned).sort((a, b) => a.set_number - b.set_number);
+  // Ejercicios adicionales: series guardadas en la sesión que no son de la rutina (en el orden en que se agregaron).
+  const routineIds = new Set(items.map((i) => i.exercise_id));
+  const extraIds = [...new Set(saved.map((s) => s.planned_exercise_id ?? s.exercise_id))].filter((id) => !routineIds.has(id) && cat.byId.has(id));
   // Último registro real de cada ejercicio (antes de esta fecha), con todas sus series.
-  const ids = [...new Set(items.map((i) => i.exercise_id))];
-  const history = ids.length ? await q<any[]>(db.from('workout_set_history').select('exercise_id,performed_at,set_number,weight_kg,reps,session_id').in('exercise_id', ids).lt('performed_at', date).order('performed_at', { ascending: false }).order('set_number').limit(1000)) : [];
-  const setOut = (exId: string, s: any) => cat.byId.get(exId)?.measurement_type === 'duration'
-    ? { duration_s: num(s.duration_s) ?? num(s.weight_kg) }
-    : { weight_kg: num(s.weight_kg), reps: num(s.reps) };
-  const lastBy = new Map<string, { date: string; sets: any[]; session: string }>();
-  for (const h of history) {
-    const cur = lastBy.get(h.exercise_id);
-    if (!cur) lastBy.set(h.exercise_id, { date: h.performed_at, sets: [setOut(h.exercise_id, h)], session: h.session_id });
-    else if (cur.session === h.session_id) cur.sets.push(setOut(h.exercise_id, h));
-  }
+  const lastBy = await lastRecords([...routineIds, ...extraIds], date, cat);
+  const setOut = (exId: string, s: any) => setOutput(cat, exId, s);
   return {
     day, date, session,
     items: items.map((i) => {
       const ex = cat.byId.get(i.exercise_id);
-      const mine = saved.filter((s) => (s.planned_exercise_id ?? s.exercise_id) === i.exercise_id);
+      const mine = savedSets(i.exercise_id);
       const last = lastBy.get(i.exercise_id);
       return {
         position: i.position, exercise_id: i.exercise_id, name: ex?.name ?? 'Ejercicio', muscle: ex?.primary_muscle ?? null,
@@ -521,8 +516,79 @@ async function workoutToday(day: string, date: string) {
         saved: mine.length ? { exercise_id: mine[0].exercise_id, sets: mine.map((s) => setOut(mine[0].exercise_id, s)) } : null,
       };
     }),
+    extras: extraIds.map((id) => {
+      const ex = cat.byId.get(id)!;
+      const mine = savedSets(id);
+      const last = lastBy.get(id);
+      return {
+        exercise_id: id, name: ex.name, muscle: ex.primary_muscle, measurement_type: ex.measurement_type, extra: true,
+        target: { sets: null, reps_min: null, reps_max: null, weight_kg: null }, target_change: null,
+        last: last ? { date: last.date, sets: last.sets } : null,
+        saved: { exercise_id: id, sets: mine.map((s) => setOut(id, s)) },
+      };
+    }),
     catalog: cat.rows.filter((e) => e.active).map(catalogItem),
   };
+}
+
+/** Series de un registro en el formato del frontend (los ejercicios por tiempo devuelven segundos). */
+function setOutput(cat: Awaited<ReturnType<typeof loadCatalog>>, exId: string, s: any) {
+  return cat.byId.get(exId)?.measurement_type === 'duration'
+    ? { duration_s: num(s.duration_s) ?? num(s.weight_kg) }
+    : { weight_kg: num(s.weight_kg), reps: num(s.reps) };
+}
+
+/** Último registro (antes de `date`) de cada ejercicio, con todas las series de esa sesión. */
+async function lastRecords(ids: string[], date: string, cat: Awaited<ReturnType<typeof loadCatalog>>) {
+  const lastBy = new Map<string, { date: string; sets: any[]; session: string }>();
+  if (!ids.length) return lastBy;
+  const history = await q<any[]>(db.from('workout_set_history').select('exercise_id,performed_at,set_number,weight_kg,reps,duration_s,session_id')
+    .in('exercise_id', ids).lt('performed_at', date).order('performed_at', { ascending: false }).order('set_number').limit(1000));
+  for (const h of history) {
+    const cur = lastBy.get(h.exercise_id);
+    if (!cur) lastBy.set(h.exercise_id, { date: h.performed_at, sets: [setOutput(cat, h.exercise_id, h)], session: h.session_id });
+    else if (cur.session === h.session_id) cur.sets.push(setOutput(cat, h.exercise_id, h));
+  }
+  return lastBy;
+}
+
+/** Último registro de un ejercicio (para la tarjeta de un ejercicio adicional). */
+async function exerciseLast(id: string, date: string) {
+  if (!UUID_RE.test(id)) throw new HttpError(400, 'Ejercicio inválido');
+  if (!DATE_RE.test(date)) throw new HttpError(400, 'Fecha inválida');
+  const cat = await loadCatalog();
+  if (!cat.byId.has(id)) throw new HttpError(404, 'El ejercicio no existe');
+  const last = (await lastRecords([id], date, cat)).get(id);
+  return { last: last ? { date: last.date, sets: last.sets } : null };
+}
+
+/** Quita de la sesión un ejercicio adicional (borra sus series). Los de la rutina no se pueden quitar. */
+async function deleteSessionExercise(sid: string, planned: string) {
+  if (!UUID_RE.test(sid) || !UUID_RE.test(planned)) throw new HttpError(400, 'Ejercicio inválido');
+  const ses = await q<any[]>(db.from('workout_sessions').select('id,title').eq('id', sid).limit(1));
+  if (!ses.length) throw new HttpError(404, 'La sesión no existe');
+  const routines = await q<any[]>(db.from('routine_templates').select('id').eq('active', true).order('created_at').limit(1));
+  if (routines.length) {
+    const inRoutine = await q<any[]>(db.from('routine_exercises').select('id').eq('routine_id', routines[0].id).eq('day_code', ses[0].title).eq('exercise_id', planned).limit(1));
+    if (inRoutine.length) throw new HttpError(409, 'Ese ejercicio es de la rutina: no se puede quitar');
+  }
+  await q(db.from('workout_sets').delete().eq('session_id', sid).eq('planned_exercise_id', planned));
+  return { ok: true };
+}
+
+/** Agrega un ejercicio al final de un día de la rutina, con objetivo inicial = lo hecho hoy. */
+async function addToRoutine(day: string, exerciseId: string, done: { sets: number; weight: number | null; reps: number | null }, timed: boolean) {
+  const routines = await q<any[]>(db.from('routine_templates').select('id').eq('active', true).order('created_at').limit(1));
+  if (!routines.length) throw new HttpError(404, 'No hay rutina activa');
+  const rows = await q<any[]>(db.from('routine_exercises').select('exercise_id,position').eq('routine_id', routines[0].id).eq('day_code', day));
+  if (rows.some((r) => r.exercise_id === exerciseId)) return null; // ya estaba
+  const position = Math.max(0, ...rows.map((r) => r.position ?? 0)) + 1;
+  const target = { sets: done.sets, reps_min: timed ? null : done.reps, reps_max: timed ? null : done.reps, weight_kg: timed ? null : done.weight };
+  await q(db.from('routine_exercises').insert({
+    routine_id: routines[0].id, day_code: day, position, exercise_id: exerciseId,
+    target_sets: target.sets, target_reps_min: target.reps_min, target_reps_max: target.reps_max, target_weight_kg: target.weight_kg,
+  }));
+  return { position, target };
 }
 
 const catalogItem = (e: Exercise) => ({ id: e.id, name: e.name, muscle: e.primary_muscle, equipment: e.equipment, measurement_type: e.measurement_type });
@@ -668,12 +734,17 @@ async function saveExerciseSets(sid: string, body: any) {
   if (!rows.length) throw new HttpError(400, 'Cargá al menos una serie');
   await q(db.from('workout_sets').delete().eq('session_id', sid).eq('planned_exercise_id', planned));
   await q(db.from('workout_sets').insert(rows));
+  // Ejercicio adicional con la casilla "Agregar a mi rutina": pasa a la rutina de ese día.
+  let added_to_routine = null;
+  if (body?.add_to_routine === true && exerciseId === planned && DAY_CODES.includes(ses[0].title)) {
+    added_to_routine = await addToRoutine(ses[0].title, planned, sessionSummary(rows, timed), timed);
+  }
   // Con cada guardado se revisa si el objetivo de la rutina debe actualizarse.
   let target_update = null;
   if (exerciseId === planned && DAY_CODES.includes(ses[0].title)) {
     try { target_update = await autoUpdateTarget(ses[0].title, planned); } catch (err) { console.error('autoUpdateTarget', err); }
   }
-  return { ok: true, sets: rows.length, target_update };
+  return { ok: true, sets: rows.length, target_update, added_to_routine };
 }
 
 async function setWorkoutStatus(sid: string, status: 'completed' | 'open') {
@@ -774,11 +845,13 @@ async function route(req: Request, path: string[], url: URL) {
   }
   if (m === 'PUT' && a === 'routine' && b === 'order') return saveRoutineOrder(body);
   if (m === 'POST' && a === 'exercises' && !b) return createExercise(body);
+  if (m === 'GET' && a === 'exercises' && b && c === 'last') return exerciseLast(b, url.searchParams.get('date') ?? todayBA());
   if (m === 'POST' && a === 'workouts' && !b) return createOrResumeWorkout(body);
   if (m === 'PUT' && a === 'workouts' && b && c === 'exercise') return saveExerciseSets(b, body);
   if (m === 'POST' && a === 'workouts' && b && c === 'finish') return setWorkoutStatus(b, 'completed');
   if (m === 'POST' && a === 'workouts' && b && c === 'reopen') return setWorkoutStatus(b, 'open');
-  if (m === 'DELETE' && a === 'workouts' && b) return deleteWorkout(b);
+  if (m === 'DELETE' && a === 'workouts' && b && c === 'exercise' && path[3]) return deleteSessionExercise(b, path[3]);
+  if (m === 'DELETE' && a === 'workouts' && b && !c) return deleteWorkout(b);
   if (m === 'GET' && a === 'weight') {
     const [weights, goals] = await Promise.all([loadWeights(), loadGoals()]);
     return { records: weights, summary: weightSummary(weights, num(goals.target_weight_kg)), target: num(goals.target_weight_kg) };

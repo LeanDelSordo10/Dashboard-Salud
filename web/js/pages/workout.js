@@ -23,6 +23,7 @@ export default async function workout(view, { params, setSub }) {
   async function load() {
     view.innerHTML = `<div class="card skeleton" style="min-height:120px"></div><div class="ex-list">${skeleton(3, 'chart-sk')}</div>`;
     data = await api.workoutToday(day, date);
+    data.extras ??= [];
     day = data.day;
     sessionId = data.session?.id ?? null;
     sessionStatus = data.session?.status ?? null;
@@ -42,6 +43,12 @@ export default async function workout(view, { params, setSub }) {
         ${sessionStatus === 'completed' ? `<div class="banner info" style="margin:14px 0 0"><span>✓</span><div>Este entrenamiento ya está finalizado. Podés corregir cualquier ejercicio y volver a guardarlo.</div></div>` : ''}
       </div>
       <div class="ex-list" id="exList">${data.items.length ? data.items.map(cardHTML).join('') : `<div class="card">${emptyState('📋', 'No hay ejercicios cargados para esta rutina')}</div>`}</div>
+      <h3 class="extras-head" id="extrasHead" ${data.extras.length ? '' : 'hidden'}>Ejercicios adicionales</h3>
+      <div class="ex-list extra-list" id="extraList">${data.extras.map(cardHTML).join('')}</div>
+      <details class="card add-extra" id="addExtra">
+        <summary><span class="add-extra-btn">＋ Agregar ejercicio adicional</span><small>Solo para este entrenamiento, salvo que marques “Agregar a mi rutina”</small></summary>
+        <div class="picker">${pickerHTML()}</div>
+      </details>
       ${data.items.length ? `<div class="finish-bar">
         <div class="grow"><div class="row between"><b id="progText"></b><span class="muted small" id="progSub"></span></div><div class="progress green"><span id="progBar" style="width:0"></span></div></div>
         ${sessionStatus === 'completed' ? '<button class="btn" id="reopenBtn">Reabrir</button>' : '<button class="btn primary" id="finishBtn">Finalizar</button>'}
@@ -89,12 +96,13 @@ export default async function workout(view, { params, setSub }) {
           return setRow(i + 1, timed ? {} : { weight_kg: ls?.weight_kg ?? t.weight_kg ?? '' }, timed, ls);
         });
     const chosen = it.saved?.exercise_id ?? it.exercise_id;
-    return `<article class="card ex-card ${it.saved ? 'saved' : ''}" data-ex="${it.exercise_id}" data-timed="${timed ? 1 : 0}">
+    const extra = !!it.extra;
+    return `<article class="card ex-card ${it.saved ? 'saved' : ''} ${extra ? 'extra' : ''}" data-ex="${it.exercise_id}" data-timed="${timed ? 1 : 0}">
       <div class="ex-head">
-        <button type="button" class="drag-handle" aria-label="Mover ${esc(it.name)}. Usá las flechas para subir o bajar" title="Arrastrá para cambiar el orden">⠿</button>
-        <div class="ex-num">${it.saved ? '✓' : idx + 1}</div>
+        ${extra ? '' : `<button type="button" class="drag-handle" aria-label="Mover ${esc(it.name)}. Usá las flechas para subir o bajar" title="Arrastrá para cambiar el orden">⠿</button>`}
+        <div class="ex-num">${it.saved ? '✓' : extra ? '＋' : idx + 1}</div>
         <div class="ex-title"><b class="ex-name">${esc(data.catalog.find((c) => c.id === chosen)?.name ?? it.name)}</b>
-          <div class="ex-meta">${it.muscle ? `<span>${esc(it.muscle)}</span>` : ''}${target ? `<span class="ex-target">Objetivo: ${target}</span>` : ''}</div>
+          <div class="ex-meta">${extra ? '<span class="extra-tag">Adicional</span>' : ''}${it.muscle ? `<span>${esc(it.muscle)}</span>` : ''}${target ? `<span class="ex-target">Objetivo: ${target}</span>` : ''}</div>
           ${changeBadge(it.target_change)}</div></div>
       <div class="ex-last">${lastTxt}</div>
       <div class="set-head ${timed ? 'timed' : ''}"><span>#</span>${timed ? '<span>Duración</span>' : '<span>Kilos</span><span>Reps</span>'}<span></span></div>
@@ -105,167 +113,254 @@ export default async function workout(view, { params, setSub }) {
         <span class="status ${it.saved ? 'ok' : ''}">${it.saved ? `✓ Guardado (${it.saved.sets.length} series)` : ''}</span>
         <button class="btn sm primary save">${it.saved ? 'Actualizar' : 'Guardar'}</button>
       </div>
-      <details class="swap"><summary>⇄ Cambiar ejercicio (si usaste otra máquina)</summary>
-        <div class="picker">
-          <input type="hidden" class="pick" value="${chosen}">
-          <input type="search" class="pick-q" placeholder="Buscar por nombre, músculo o equipo…" autocomplete="off" enterkeyhint="search" aria-label="Buscar ejercicio">
-          <div class="pick-list" role="listbox" aria-label="Ejercicios"></div>
-          <form class="pick-new" hidden novalidate></form>
-        </div></details>
+      ${extra ? `<div class="extra-opts">
+          <label class="check"><input type="checkbox" class="to-routine"><span>Agregar a mi rutina</span></label>
+          <button type="button" class="btn sm ghost remove-extra">✕ Quitar</button>
+        </div>` : `<details class="swap"><summary>⇄ Cambiar ejercicio (si usaste otra máquina)</summary>
+        <input type="hidden" class="pick" value="${chosen}">
+        <div class="picker">${pickerHTML()}</div></details>`}
     </article>`;
   }
 
   // ------------------------------------------------------------ buscador de ejercicios
-  // Reemplaza al desplegable: filtra mientras escribís (sin importar tildes ni
-  // mayúsculas) por nombre, músculo y equipo, y permite crear un ejercicio nuevo.
+  // Se usa en "Cambiar ejercicio" y en "Agregar ejercicio adicional": filtra mientras
+  // escribís (sin importar tildes ni mayúsculas) por nombre, músculo y equipo, oculta
+  // los ejercicios que ya están en la pantalla y permite crear un ejercicio nuevo.
   const norm = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
   const sortCatalog = () => data.catalog.sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+  const pickerHTML = () => `
+    <input type="search" class="pick-q" placeholder="Buscar por nombre, músculo o equipo…" autocomplete="off" enterkeyhint="search" aria-label="Buscar ejercicio">
+    <div class="pick-list" role="listbox" aria-label="Ejercicios"></div>
+    <form class="pick-new" hidden novalidate></form>`;
 
-  /** Ejercicios que coinciden con la búsqueda, agrupados por músculo (el del ejercicio actual primero). */
-  function pickGroups(query, firstMuscle) {
+  /** Ejercicios que ya están en pantalla (tarjetas de la rutina y adicionales), salvo `except`. */
+  function usedIds(except = null) {
+    const ids = new Set();
+    for (const c of $$('.ex-card', view)) {
+      if (c === except) continue;
+      ids.add(c.dataset.ex);
+      const p = $('.pick', c); if (p) ids.add(p.value);
+    }
+    return ids;
+  }
+
+  /** Coincidencias de la búsqueda agrupadas por músculo (el músculo indicado primero). */
+  function pickGroups(query, firstMuscle, exclude, current) {
     const words = norm(query).split(' ').filter(Boolean);
     const hits = data.catalog.filter((c) => {
+      if (exclude.has(c.id) && c.id !== current) return false;
       const hay = norm(`${c.name} ${c.muscle ?? ''} ${c.equipment ?? ''}`);
       return words.every((w) => hay.includes(w));
     });
     const order = [firstMuscle, ...MUSCLES].filter(Boolean);
-    const rank = (m) => { const i = order.indexOf(m ?? 'Otros'); return i < 0 ? 99 : i; };
+    const rank = (m) => { const i = order.indexOf(m); return i < 0 ? 99 : i; };
     const groups = new Map();
     for (const c of hits) { const m = c.muscle ?? 'Otros'; if (!groups.has(m)) groups.set(m, []); groups.get(m).push(c); }
     return [...groups.entries()].sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0], 'es'));
   }
 
-  function renderPickList(card, it) {
-    const q = $('.pick-q', card).value.trim();
-    const current = $('.pick', card).value;
-    const groups = pickGroups(q, it.muscle);
-    const items = groups.map(([m, list]) => `<div class="pick-group">${esc(m)}</div>${list.map((c) => `
-      <button type="button" class="pick-item ${c.id === current ? 'on' : ''}" role="option" aria-selected="${c.id === current}" data-id="${c.id}">
-        <span>${esc(c.name)}${c.measurement_type === 'duration' ? ' <small>⏱ segundos</small>' : ''}</span>
-        ${c.id === current ? '<b aria-hidden="true">✓</b>' : c.equipment ? `<small>${esc(c.equipment)}</small>` : ''}
-      </button>`).join('')}`).join('');
-    const empty = q && !groups.length;
-    $('.pick-list', card).innerHTML = `${empty ? `<p class="pick-empty">Sin resultados para “${esc(q)}”</p>` : items}
-      <button type="button" class="btn sm ${empty ? 'primary' : 'ghost'} pick-create">＋ Crear ejercicio${q ? ` “${esc(q)}”` : ''}</button>`;
-  }
+  /**
+   * Monta un buscador dentro de `details` (se arma al abrirlo).
+   * opts: { muscle, current() → id elegido o null, exclude() → Set de ids a ocultar, onChoose(ejercicio) }
+   */
+  function mountPicker(details, opts) {
+    const root = $('.picker', details), q = $('.pick-q', root), list = $('.pick-list', root), form = $('.pick-new', root);
 
-  /** Elige un ejercicio del catálogo para esta tarjeta. */
-  function choosePick(card, it, timed, id) {
-    const c = data.catalog.find((x) => x.id === id);
-    if (!c) return;
-    const input = $('.pick', card);
-    const changed = input.value !== id;
-    input.value = id;
-    $('.ex-name', card).textContent = c.name;
-    const sw = $('details.swap', card);
-    sw.open = false;
-    $('.pick-q', card).value = '';
-    closeCreate(card);
-    if (!changed) return;
-    if ((c.measurement_type === 'duration') !== timed) toast('Ese ejercicio se mide distinto: revisá las series', 'error');
-    markDirty(card);
-  }
-
-  function openCreate(card, it) {
-    const form = $('.pick-new', card);
-    const name = $('.pick-q', card).value.trim();
-    const muscle = it.muscle && MUSCLES.includes(it.muscle) ? it.muscle : '';
-    form.innerHTML = `
-      <b class="pick-new-title">Nuevo ejercicio</b>
-      <label class="field"><span>Nombre</span><input name="name" maxlength="80" value="${esc(name)}" placeholder="Ej: Remo en máquina Hammer" required></label>
-      <div class="pick-new-row">
-        <label class="field"><span>Músculo</span><select name="muscle" required>
-          <option value="" ${muscle ? '' : 'selected'} disabled>Elegí…</option>
-          ${MUSCLES.map((m) => `<option ${m === muscle ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
-        <label class="field"><span>Se mide en</span><select name="measurement_type">
-          <option value="weight_reps">Kilos + reps</option><option value="duration">Segundos</option></select></label>
-      </div>
-      <label class="field"><span>Equipo (opcional)</span><input name="equipment" maxlength="60" placeholder="Máquina, polea, mancuernas…" list="equipmentList"></label>
-      <p class="pick-new-msg" role="status"></p>
-      <div class="pick-new-actions"><button type="button" class="btn sm ghost pick-cancel">Cancelar</button><button type="submit" class="btn sm primary">Crear y usar</button></div>`;
-    form.hidden = false;
-    $('.pick-list', card).hidden = true;
-    $('.pick-q', card).hidden = true;
-    (name ? $('[name=muscle]', form) : $('[name=name]', form)).focus();
-  }
-
-  function closeCreate(card) {
-    const form = $('.pick-new', card);
-    form.hidden = true; form.innerHTML = '';
-    $('.pick-list', card).hidden = false;
-    $('.pick-q', card).hidden = false;
-  }
-
-  /** Muestra que el nombre ya existe y ofrece elegir ese ejercicio. */
-  function showDuplicate(card, dup) {
-    const msg = $('.pick-new-msg', card);
-    msg.className = 'pick-new-msg err';
-    msg.innerHTML = `Ya existe <b>${esc(dup.name)}</b>. <button type="button" class="link pick-use" data-id="${dup.id}">Usar ese</button>`;
-  }
-
-  async function submitCreate(card, it, timed) {
-    const form = $('.pick-new', card), msg = $('.pick-new-msg', form), btn = $('[type=submit]', form);
-    const fd = new FormData(form);
-    const payload = {
-      name: String(fd.get('name') ?? '').replace(/\s+/g, ' ').trim(),
-      muscle: String(fd.get('muscle') ?? ''),
-      measurement_type: String(fd.get('measurement_type') ?? 'weight_reps'),
-      equipment: String(fd.get('equipment') ?? '').trim(),
-    };
-    const fail = (t) => { msg.className = 'pick-new-msg err'; msg.textContent = t; };
-    if (payload.name.length < 2) return fail('Escribí el nombre del ejercicio');
-    if (!payload.muscle) return fail('Elegí el grupo muscular');
-    const dup = data.catalog.find((c) => norm(c.name) === norm(payload.name));
-    if (dup) return showDuplicate(card, dup);
-    btn.disabled = true; btn.textContent = 'Creando…';
-    try {
-      const { exercise } = await api.createExercise(payload);
-      data.catalog.push(exercise); sortCatalog();
-      choosePick(card, it, timed, exercise.id);
-      toast(`Ejercicio creado: ${exercise.name}`);
-    } catch (err) {
-      if (err.status === 409) {
-        // Ya existe en la base (p. ej. creado desde otro dispositivo).
-        const local = data.catalog.find((c) => norm(c.name) === norm(payload.name));
-        if (local) showDuplicate(card, local); else fail(`${err.message}. Recargá la página para verlo.`);
-      } else fail(err.status === 0 ? 'Sin conexión: no se creó. Probá de nuevo.' : err.message);
-      btn.disabled = false; btn.textContent = 'Crear y usar';
+    function refresh() {
+      const query = q.value.trim(), current = opts.current();
+      const groups = pickGroups(query, opts.muscle, opts.exclude(), current);
+      const items = groups.map(([m, cs]) => `<div class="pick-group">${esc(m)}</div>${cs.map((c) => `
+        <button type="button" class="pick-item ${c.id === current ? 'on' : ''}" role="option" aria-selected="${c.id === current}" data-id="${c.id}">
+          <span>${esc(c.name)}${c.measurement_type === 'duration' ? ' <small>⏱ segundos</small>' : ''}</span>
+          ${c.id === current ? '<b aria-hidden="true">✓</b>' : c.equipment ? `<small>${esc(c.equipment)}</small>` : ''}
+        </button>`).join('')}`).join('');
+      const empty = query && !groups.length;
+      list.innerHTML = `${empty ? `<p class="pick-empty">Sin resultados para “${esc(query)}”</p>` : items}
+        <button type="button" class="btn sm ${empty ? 'primary' : 'ghost'} pick-create">＋ Crear ejercicio${query ? ` “${esc(query)}”` : ''}</button>`;
     }
-  }
 
-  function bindPicker(card, it, timed) {
-    const sw = $('details.swap', card), q = $('.pick-q', card), list = $('.pick-list', card), form = $('.pick-new', card);
-    sw.addEventListener('toggle', () => {
-      if (!sw.open) { closeCreate(card); return; }
-      renderPickList(card, it);
+    function closeCreate() {
+      form.hidden = true; form.innerHTML = '';
+      list.hidden = false; q.hidden = false;
+    }
+
+    function reset() { q.value = ''; list.innerHTML = ''; closeCreate(); }
+
+    function choose(id) {
+      const c = data.catalog.find((x) => x.id === id);
+      if (!c) return;
+      details.open = false;
+      reset();
+      opts.onChoose(c);
+    }
+
+    function openCreate() {
+      const name = q.value.trim();
+      const muscle = opts.muscle && MUSCLES.includes(opts.muscle) ? opts.muscle : '';
+      form.innerHTML = `
+        <b class="pick-new-title">Nuevo ejercicio</b>
+        <label class="field"><span>Nombre</span><input name="name" maxlength="80" value="${esc(name)}" placeholder="Ej: Remo en máquina Hammer" required></label>
+        <div class="pick-new-row">
+          <label class="field"><span>Músculo</span><select name="muscle" required>
+            <option value="" ${muscle ? '' : 'selected'} disabled>Elegí…</option>
+            ${MUSCLES.map((m) => `<option ${m === muscle ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
+          <label class="field"><span>Se mide en</span><select name="measurement_type">
+            <option value="weight_reps">Kilos + reps</option><option value="duration">Segundos</option></select></label>
+        </div>
+        <label class="field"><span>Equipo (opcional)</span><input name="equipment" maxlength="60" placeholder="Máquina, polea, mancuernas…" list="equipmentList"></label>
+        <p class="pick-new-msg" role="status"></p>
+        <div class="pick-new-actions"><button type="button" class="btn sm ghost pick-cancel">Cancelar</button><button type="submit" class="btn sm primary">Crear y usar</button></div>`;
+      form.hidden = false; list.hidden = true; q.hidden = true;
+      (name ? $('[name=muscle]', form) : $('[name=name]', form)).focus();
+    }
+
+    /** El nombre ya existe: se ofrece usar ese (si no está ya en la pantalla). */
+    function showDuplicate(dup) {
+      const msg = $('.pick-new-msg', form);
+      msg.className = 'pick-new-msg err';
+      msg.innerHTML = opts.exclude().has(dup.id) && dup.id !== opts.current()
+        ? `Ya existe <b>${esc(dup.name)}</b> y ya está en esta pantalla.`
+        : `Ya existe <b>${esc(dup.name)}</b>. <button type="button" class="link pick-use" data-id="${dup.id}">Usar ese</button>`;
+    }
+
+    async function submitCreate() {
+      const msg = $('.pick-new-msg', form), btn = $('[type=submit]', form);
+      const fd = new FormData(form);
+      const payload = {
+        name: String(fd.get('name') ?? '').replace(/\s+/g, ' ').trim(),
+        muscle: String(fd.get('muscle') ?? ''),
+        measurement_type: String(fd.get('measurement_type') ?? 'weight_reps'),
+        equipment: String(fd.get('equipment') ?? '').trim(),
+      };
+      const fail = (t) => { msg.className = 'pick-new-msg err'; msg.textContent = t; };
+      if (payload.name.length < 2) return fail('Escribí el nombre del ejercicio');
+      if (!payload.muscle) return fail('Elegí el grupo muscular');
+      const dup = data.catalog.find((c) => norm(c.name) === norm(payload.name));
+      if (dup) return showDuplicate(dup);
+      btn.disabled = true; btn.textContent = 'Creando…';
+      try {
+        const { exercise } = await api.createExercise(payload);
+        data.catalog.push(exercise); sortCatalog();
+        choose(exercise.id);
+        toast(`Ejercicio creado: ${exercise.name}`);
+      } catch (err) {
+        if (err.status === 409) fail(`${err.message}. Recargá la página para verlo.`);
+        else fail(err.status === 0 ? 'Sin conexión: no se creó. Probá de nuevo.' : err.message);
+        btn.disabled = false; btn.textContent = 'Crear y usar';
+      }
+    }
+
+    details.addEventListener('toggle', () => {
+      if (!details.open) { reset(); return; }
+      refresh();
       // En el celular el teclado tapa la lista: se enfoca el buscador sin saltar de golpe.
       q.focus({ preventScroll: true });
-      sw.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      details.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     });
-    // El buscador no marca la tarjeta como "con cambios" (solo elegir un ejercicio lo hace).
-    for (const el of [q, form]) el.addEventListener('input', (e) => e.stopPropagation());
+    // Buscar o completar el formulario no marca la tarjeta como "con cambios".
+    root.addEventListener('input', (e) => e.stopPropagation());
     form.addEventListener('input', () => { const m = $('.pick-new-msg', form); if (m) { m.className = 'pick-new-msg'; m.textContent = ''; } });
-    q.addEventListener('input', () => renderPickList(card, it));
+    q.addEventListener('input', refresh);
     q.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
         const first = $('.pick-item', list);
-        if (first) choosePick(card, it, timed, first.dataset.id); else if (q.value.trim()) openCreate(card, it);
+        if (first) choose(first.dataset.id); else if (q.value.trim()) openCreate();
       } else if (e.key === 'Escape') {
-        if (q.value) { q.value = ''; renderPickList(card, it); } else sw.open = false;
+        if (q.value) { q.value = ''; refresh(); } else details.open = false;
       }
     });
     list.addEventListener('click', (e) => {
       const item = e.target.closest('.pick-item');
-      if (item) return choosePick(card, it, timed, item.dataset.id);
-      if (e.target.closest('.pick-create')) openCreate(card, it);
+      if (item) return choose(item.dataset.id);
+      if (e.target.closest('.pick-create')) openCreate();
     });
     form.addEventListener('click', (e) => {
-      if (e.target.closest('.pick-cancel')) { closeCreate(card); renderPickList(card, it); q.focus(); }
+      if (e.target.closest('.pick-cancel')) { closeCreate(); refresh(); q.focus(); }
       const use = e.target.closest('.pick-use');
-      if (use) choosePick(card, it, timed, use.dataset.id);
+      if (use) choose(use.dataset.id);
     });
-    form.addEventListener('submit', (e) => { e.preventDefault(); submitCreate(card, it, timed); });
+    form.addEventListener('submit', (e) => { e.preventDefault(); submitCreate(); });
+  }
+
+  /** "Cambiar ejercicio" de una tarjeta de la rutina. */
+  function bindSwap(card, it, timed) {
+    const sw = $('details.swap', card);
+    if (!sw) return;
+    mountPicker(sw, {
+      muscle: it.muscle,
+      current: () => $('.pick', card).value,
+      exclude: () => usedIds(card),
+      onChoose: (c) => {
+        const input = $('.pick', card);
+        if (input.value === c.id) return;
+        input.value = c.id;
+        $('.ex-name', card).textContent = c.name;
+        if ((c.measurement_type === 'duration') !== timed) toast('Ese ejercicio se mide distinto: revisá las series', 'error');
+        markDirty(card);
+      },
+    });
+  }
+
+  // ------------------------------------------------------------ ejercicios adicionales
+  // Se agregan abajo de todo, solo para este entrenamiento. Con la casilla
+  // "Agregar a mi rutina", al guardarlo pasa a la rutina de este día.
+  function updateExtrasHead() {
+    const head = $('#extrasHead');
+    if (head) head.hidden = !$$('.ex-card', $('#extraList')).length;
+  }
+
+  async function addExtra(c) {
+    const it = {
+      exercise_id: c.id, name: c.name, muscle: c.muscle, measurement_type: c.measurement_type, extra: true,
+      target: { sets: null, reps_min: null, reps_max: null, weight_kg: null }, target_change: null, last: null, saved: null,
+    };
+    const btn = $('#addExtra summary');
+    btn.classList.add('loading');
+    try { it.last = (await api.exerciseLast(c.id, date)).last; } catch { /* sin el último registro igual se puede cargar */ }
+    finally { btn.classList.remove('loading'); }
+    data.extras.push(it);
+    $('#extraList').insertAdjacentHTML('beforeend', cardHTML(it, 0));
+    const card = $$('.ex-card', $('#extraList')).at(-1);
+    bindCard(card);
+    updateExtrasHead();
+    progress();
+    card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+
+  async function removeExtra(card, it) {
+    const saved = !!it.saved && sessionId;
+    if (saved || card.classList.contains('dirty')) {
+      const ok = await confirmDialog('Quitar ejercicio', saved
+        ? `Se van a borrar las series guardadas de ${it.name} en este entrenamiento.`
+        : `Se pierden los datos cargados de ${it.name}.`, { ok: 'Quitar', danger: true });
+      if (!ok) return;
+    }
+    if (saved) {
+      try { await api.removeSessionExercise(sessionId, it.exercise_id); }
+      catch (err) { toast(err.status === 0 ? 'Sin conexión: no se quitó. Probá de nuevo.' : err.message, 'error'); return; }
+    }
+    data.extras = data.extras.filter((x) => x !== it);
+    card.remove();
+    updateExtrasHead();
+    progress();
+    toast(`${it.name} quitado`);
+  }
+
+  /** Un adicional guardado con "Agregar a mi rutina" pasa a la lista de la rutina. */
+  function moveToRoutine(card, it, added) {
+    it.extra = false;
+    it.target = { sets: null, reps_min: null, reps_max: null, weight_kg: null, ...added.target };
+    it.position = added.position;
+    data.extras = data.extras.filter((x) => x !== it);
+    data.items.push(it);
+    const list = $('#exList');
+    if (!$('.ex-card', list)) list.innerHTML = '';
+    list.insertAdjacentHTML('beforeend', cardHTML(it, data.items.length - 1));
+    card.remove();
+    bindCard($$('.ex-card', list).at(-1));
+    updateExtrasHead();
+    toast(`📋 ${it.name} agregado a tu rutina ${day}`);
   }
 
   // ------------------------------------------------------------ reordenar
@@ -388,37 +483,47 @@ export default async function workout(view, { params, setSub }) {
       if (dirtyCount() && !(await confirmDialog('Cambios sin guardar', 'Hay ejercicios sin guardar. Si cambiás de rutina se van a perder.', { ok: 'Cambiar igual' }))) return;
       day = b.dataset.day; load();
     }));
-    $$('.ex-card', view).forEach((card) => {
-      const it = data.items.find((x) => x.exercise_id === card.dataset.ex);
-      const timed = card.dataset.timed === '1';
-      card.addEventListener('input', () => markDirty(card));
-      card.addEventListener('click', (e) => {
-        if (e.target.closest('.rm')) {
-          const rows = $$('.set-row', card);
-          if (rows.length > 1) { e.target.closest('.set-row').remove(); renumber(card); markDirty(card); }
-        }
-      });
-      $('.add', card).onclick = () => {
-        const rows = $$('.set-row', card);
-        const lastRow = rows.at(-1);
-        const w = lastRow ? $('.in-w', lastRow)?.value : '';
-        $('.set-grid', card).insertAdjacentHTML('beforeend', setRow(rows.length + 1, timed ? {} : { weight_kg: w }, timed, it.last?.sets.at(-1)));
-        markDirty(card);
-        $$('.set-row', card).at(-1).querySelector('input').focus();
-      };
-      const copy = $('.copy', card);
-      if (copy) copy.onclick = () => {
-        $('.set-grid', card).innerHTML = it.last.sets.map((s, i) => setRow(i + 1, s, timed, s)).join('');
-        markDirty(card);
-      };
-      bindPicker(card, it, timed);
-      $('.save', card).onclick = () => save(card, it, timed);
+    $$('.ex-card', view).forEach(bindCard);
+    mountPicker($('#addExtra'), {
+      muscle: null,
+      current: () => null,
+      exclude: () => usedIds(),
+      onChoose: addExtra,
     });
     enableReorder($('#exList'));
     const fin = $('#finishBtn');
     if (fin) fin.onclick = finish;
     const re = $('#reopenBtn');
     if (re) re.onclick = async () => { try { await api.reopenWorkout(sessionId); sessionStatus = 'open'; toast('Sesión reabierta'); render(); } catch (err) { toast(err.message, 'error'); } };
+  }
+
+  function bindCard(card) {
+    const it = [...data.items, ...data.extras].find((x) => x.exercise_id === card.dataset.ex);
+    const timed = card.dataset.timed === '1';
+    card.addEventListener('input', () => markDirty(card));
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.rm')) {
+        const rows = $$('.set-row', card);
+        if (rows.length > 1) { e.target.closest('.set-row').remove(); renumber(card); markDirty(card); }
+      }
+    });
+    $('.add', card).onclick = () => {
+      const rows = $$('.set-row', card);
+      const lastRow = rows.at(-1);
+      const w = lastRow ? $('.in-w', lastRow)?.value : '';
+      $('.set-grid', card).insertAdjacentHTML('beforeend', setRow(rows.length + 1, timed ? {} : { weight_kg: w }, timed, it.last?.sets.at(-1)));
+      markDirty(card);
+      $$('.set-row', card).at(-1).querySelector('input').focus();
+    };
+    const copy = $('.copy', card);
+    if (copy) copy.onclick = () => {
+      $('.set-grid', card).innerHTML = it.last.sets.map((s, i) => setRow(i + 1, s, timed, s)).join('');
+      markDirty(card);
+    };
+    bindSwap(card, it, timed);
+    $('.save', card).onclick = () => save(card, it, timed);
+    const rm = $('.remove-extra', card);
+    if (rm) rm.onclick = () => removeExtra(card, it);
   }
 
   async function ensureSession() {
@@ -453,8 +558,9 @@ export default async function workout(view, { params, setSub }) {
     btn.disabled = true; btn.textContent = 'Guardando…';
     try {
       const sid = await ensureSession();
-      const exerciseId = $('.pick', card).value;
-      const r = await api.saveExercise(sid, { exercise_id: exerciseId, planned_exercise_id: it.exercise_id, sets });
+      const exerciseId = $('.pick', card)?.value ?? it.exercise_id;
+      const toRoutine = !!it.extra && !!$('.to-routine', card)?.checked;
+      const r = await api.saveExercise(sid, { exercise_id: exerciseId, planned_exercise_id: it.exercise_id, sets, ...(toRoutine ? { add_to_routine: true } : {}) });
       it.saved = { exercise_id: exerciseId, sets };
       card.classList.remove('dirty'); card.classList.add('saved');
       $('.ex-num', card).textContent = '✓';
@@ -470,6 +576,7 @@ export default async function workout(view, { params, setSub }) {
       }
       btn.textContent = 'Actualizar';
       if (navigator.vibrate) navigator.vibrate(30);
+      if (r.added_to_routine) moveToRoutine(card, it, r.added_to_routine);
       progress();
     } catch (err) {
       st.className = 'status err'; st.textContent = err.status === 0 ? 'Sin conexión: no se guardó. Probá de nuevo.' : err.message;
@@ -481,16 +588,19 @@ export default async function workout(view, { params, setSub }) {
   function progress() {
     const total = data.items.length; if (!total) return;
     const done = data.items.filter((x) => x.saved).length;
-    $('#progText').textContent = `${done} de ${total} ejercicios guardados`;
+    const extras = data.extras.filter((x) => x.saved).length;
+    $('#progText').textContent = `${done} de ${total} ejercicios guardados${extras ? ` + ${extras} adicional${extras > 1 ? 'es' : ''}` : ''}`;
     $('#progSub').textContent = sessionStatus === 'completed' ? 'Finalizado ✓' : done ? 'Guardado en la nube' : '';
     $('#progBar').style.width = `${Math.round((done * 100) / total)}%`;
-    const fin = $('#finishBtn'); if (fin) fin.disabled = done === 0;
+    const fin = $('#finishBtn'); if (fin) fin.disabled = done + extras === 0;
   }
 
   async function finish() {
     const pending = data.items.filter((x) => !x.saved).length;
+    const extrasPending = data.extras.filter((x) => !x.saved).length;
     if (dirtyCount()) { toast('Guardá los ejercicios con cambios antes de finalizar', 'error'); return; }
-    if (pending && !(await confirmDialog('Finalizar entrenamiento', `Quedan ${pending} ejercicios sin cargar. ¿Finalizar igual?`, { ok: 'Finalizar' }))) return;
+    const parts = [pending ? `${pending} ejercicio${pending > 1 ? 's' : ''} de la rutina sin cargar` : '', extrasPending ? `${extrasPending} adicional${extrasPending > 1 ? 'es' : ''} sin guardar (no se van a registrar)` : ''].filter(Boolean);
+    if (parts.length && !(await confirmDialog('Finalizar entrenamiento', `Quedan ${parts.join(' y ')}. ¿Finalizar igual?`, { ok: 'Finalizar' }))) return;
     try {
       await api.finishWorkout(sessionId);
       sessionStatus = 'completed';
