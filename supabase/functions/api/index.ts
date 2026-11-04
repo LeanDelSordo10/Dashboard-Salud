@@ -112,7 +112,7 @@ const GARMIN_ALIAS: Record<string, string> = {
   'glúteos máquina': 'Máquina de glúteos', 'gemelos': 'Gemelos de pie', 'plancha': 'Plancha',
   'press banca con barra': 'Press banca', 'jalón al pecho en polea': 'Jalón al pecho',
   'remo en máquina': 'Remo en máquina', 'remo máquina/polea': 'Remo en máquina',
-  'mariposa / pec deck': 'Pec deck / Mariposa', 'press hombros máquina': 'Press de hombros en máquina',
+  'mariposa / pec deck': 'Pec deck / Mariposa', 'press hombros máquina': 'Press de hombros con mancuerna',
   'vuelos laterales': 'Vuelos laterales', 'curl martillo': 'Curl martillo', 'tríceps polea': 'Tríceps en polea',
   'press inclinado máquina': 'Press inclinado en máquina', 'tracción vertical': 'Tracción vertical',
   'cruce de poleas': 'Cruce de poleas', 'press militar': 'Press militar', 'curl inclinado': 'Curl inclinado',
