@@ -1,0 +1,40 @@
+name: "Garmin: sincronizar"
+
+# Cada 3 horas trae de Garmin Connect los datos de salud y los entrenamientos de fuerza.
+# También se puede correr a mano (Actions → Garmin: sincronizar → Run workflow),
+# opcionalmente indicando desde qué fecha completar.
+on:
+  schedule:
+    - cron: '23 */3 * * *'
+  workflow_dispatch:
+    inputs:
+      desde:
+        description: 'Completar desde esta fecha (AAAA-MM-DD). Vacío = últimos 3 días.'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  id-token: write   # para identificarse ante la API del dashboard (sin secretos compartidos)
+
+concurrency:
+  group: garmin-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install --quiet requests==2.32.3
+      - name: Sincronizar
+        env:
+          GARMIN_PERSONAL_API_KEY: ${{ secrets.GARMIN_PERSONAL_API_KEY }}
+          SYNC_SINCE: ${{ inputs.desde }}
+        run: python scripts/garmin_sync.py

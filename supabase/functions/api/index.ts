@@ -5,6 +5,7 @@
 // usuario, comprueba que su email sea el autorizado y recién entonces usa la
 // service role (inyectada por Supabase, nunca expuesta) para leer o escribir.
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.45.4';
+import { createRemoteJWKSet, jwtVerify } from 'npm:jose@5.9.6';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -806,6 +807,102 @@ async function saveGoals(body: any) {
   return (await q<any[]>(db.from('dashboard_goals').upsert(row, { onConflict: 'id' }).select('*')))[0];
 }
 
+// ------------------------------------------------------ sincronización Garmin
+
+// La tarea programada de GitHub (.github/workflows/garmin-sync.yml) se identifica con un
+// token OIDC firmado por GitHub: no hace falta ningún secreto compartido. Solo se acepta
+// ese workflow, en la rama main de este repositorio, ejecutado por horario o a mano.
+const GH_ISSUER = 'https://token.actions.githubusercontent.com';
+const GH_AUDIENCE = 'dashboard-salud-garmin';
+const GH_REPO = 'LeanDelSordo10/Dashboard-Salud';
+const GH_WORKFLOW = `${GH_REPO}/.github/workflows/garmin-sync.yml@refs/heads/main`;
+const ghJwks = createRemoteJWKSet(new URL(`${GH_ISSUER}/.well-known/jwks`));
+
+async function authorizeGarminSync(req: Request) {
+  const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
+  if (!token) throw new HttpError(401, 'Falta el token');
+  let claims: Record<string, unknown>;
+  try {
+    ({ payload: claims } = await jwtVerify(token, ghJwks, { issuer: GH_ISSUER, audience: GH_AUDIENCE }));
+  } catch {
+    throw new HttpError(401, 'Token inválido');
+  }
+  const ok = claims.repository === GH_REPO && claims.ref === 'refs/heads/main' && claims.workflow_ref === GH_WORKFLOW
+    && ['schedule', 'workflow_dispatch'].includes(String(claims.event_name));
+  if (!ok) throw new HttpError(403, 'Origen no autorizado');
+}
+
+/** Número dentro de un rango (o null). Redondea si `int`. */
+function bounded(v: unknown, min: number, max: number, int = false): number | null {
+  const n = num(v);
+  if (n === null || n < min || n > max) return null;
+  return int ? Math.round(n) : n;
+}
+
+async function saveSyncStatus(row: Record<string, unknown>) {
+  await q(db.from('garmin_sync_status').upsert({ id: 1, last_run_at: new Date().toISOString(), ...row }, { onConflict: 'id' }));
+}
+
+/** Recibe los datos leídos de Garmin: salud diaria y entrenamientos de fuerza (solo resumen). */
+async function garminIngest(body: any) {
+  if (body?.error) {
+    await saveSyncStatus({ ok: false, message: String(body.error).slice(0, 300) });
+    return { ok: true };
+  }
+  const start = String(body?.range?.start ?? ''), end = String(body?.range?.end ?? '');
+  if (!DATE_RE.test(start) || !DATE_RE.test(end) || start > end) throw new HttpError(400, 'Rango inválido');
+  const days = Array.isArray(body?.days) ? body.days.slice(0, 400) : [];
+  const strength = Array.isArray(body?.strength) ? body.strength.slice(0, 200) : [];
+  const now = new Date().toISOString();
+
+  let savedDays = 0;
+  for (const d of days) {
+    const date = String(d?.date ?? '');
+    if (!DATE_RE.test(date) || date < start || date > end) continue;
+    const vals: Record<string, number | null> = {
+      steps: bounded(d.steps, 0, 200000, true),
+      distance_m: bounded(d.distance_m, 0, 500000),
+      active_seconds: bounded(d.active_seconds, 0, 86400, true),
+      active_calories: bounded(d.active_calories, 0, 20000, true),
+      resting_hr: bounded(d.resting_hr, 20, 200, true),
+      sleep_seconds: bounded(d.sleep_seconds, 0, 86400, true),
+      hrv_rmssd: bounded(d.hrv_rmssd, 1, 400),
+    };
+    // Solo se escriben los datos que vinieron: no se borra lo que ya había.
+    const row = Object.fromEntries(Object.entries(vals).filter(([, v]) => v !== null));
+    if (!Object.keys(row).length) continue;
+    await q(db.from('daily_health').upsert({ date, ...row, updated_at: now }, { onConflict: 'date' }));
+    if (row.steps !== undefined) {
+      await q(db.from('garmin_daily_validated').upsert({ date, steps: row.steps, source: 'garmin_personal_api', updated_at: now }, { onConflict: 'date' }));
+    }
+    savedDays++;
+  }
+
+  // Fuerza (opción A): duración, calorías y pulso del reloj se pegan a la sesión manual de ese día.
+  let linked = 0;
+  const acts = strength
+    .map((a: any) => ({
+      id: Number(a?.activity_id), date: String(a?.date ?? ''),
+      duration_s: bounded(a?.duration_s, 0, 6 * 3600), calories: bounded(a?.calories, 0, 5000, true),
+      hr_avg: bounded(a?.hr_avg, 20, 230, true), hr_max: bounded(a?.hr_max, 20, 240, true),
+    }))
+    .filter((a: any) => Number.isSafeInteger(a.id) && a.id > 0 && DATE_RE.test(a.date))
+    .sort((a: any, b: any) => (b.duration_s ?? 0) - (a.duration_s ?? 0)); // si hay dos el mismo día, gana el más largo
+  for (const a of acts) {
+    const fields = { garmin_activity_id: a.id, duration_s: a.duration_s, calories: a.calories, hr_avg: a.hr_avg, hr_max: a.hr_max };
+    const already = await q<any[]>(db.from('workout_sessions').select('id').eq('garmin_activity_id', a.id).limit(1));
+    if (already.length) { await q(db.from('workout_sessions').update(fields).eq('id', already[0].id)); linked++; continue; }
+    const free = await q<any[]>(db.from('workout_sessions').select('id').eq('date', a.date).is('garmin_activity_id', null)
+      .order('created_at', { ascending: false }).limit(1));
+    if (!free.length) continue; // ese día no hay registro manual: no se crea nada
+    await q(db.from('workout_sessions').update(fields).eq('id', free[0].id));
+    linked++;
+  }
+
+  await saveSyncStatus({ ok: true, last_ok_at: now, range_start: start, range_end: end, days: savedDays, sessions_linked: linked, message: null });
+  return { ok: true, days: savedDays, sessions_linked: linked, strength_received: acts.length };
+}
+
 // ------------------------------------------------------------------ router
 
 async function authorize(req: Request) {
@@ -864,7 +961,8 @@ async function route(req: Request, path: string[], url: URL) {
     const { start, end } = periodRange(period);
     const rows = await loadHealth(start, end);
     const all = await q<any[]>(db.from('daily_health').select('date').order('date', { ascending: false }).limit(1));
-    return { period, start, end, rows, latest_date: all[0]?.date ?? null, goals: await loadGoals() };
+    const sync = await q<any[]>(db.from('garmin_sync_status').select('last_run_at,last_ok_at,ok').eq('id', 1).limit(1));
+    return { period, start, end, rows, latest_date: all[0]?.date ?? null, goals: await loadGoals(), garmin_sync: sync[0] ?? null };
   }
   throw new HttpError(404, 'Recurso no encontrado');
 }
@@ -877,6 +975,10 @@ Deno.serve(async (req) => {
   const i = parts.indexOf('api');
   const path = (i >= 0 ? parts.slice(i + 1) : parts).map(decodeURIComponent);
   try {
+    if (path[0] === 'garmin' && path[1] === 'ingest' && req.method === 'POST') {
+      await authorizeGarminSync(req);
+      return json(await garminIngest(await req.json().catch(() => ({}))), 200, origin);
+    }
     if (path[0] === 'health-check') {
       // Usado por el keep-alive de GitHub Actions: toca la base (sin devolver datos)
       // para que el proyecto gratuito no se pause por inactividad.

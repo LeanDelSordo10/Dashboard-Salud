@@ -3,6 +3,16 @@ import { fmt, fmtInt, fmtDate, fmtDuration, skeleton, emptyState, periodPicker, 
 
 let period = 'quarter';
 
+/** Estado de la sincronización automática con Garmin Connect. */
+function syncBanner(sync) {
+  const when = (t) => new Date(t).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).replace('.', '');
+  if (!sync?.last_run_at) return '<div class="banner info"><span>ℹ</span><div>Conectando con Garmin Connect: los datos se actualizan solos cada 3 horas.</div></div>';
+  if (sync.ok === false) {
+    return `<div class="banner"><span>⚠</span><div>La última sincronización con Garmin falló (${when(sync.last_run_at)}).${sync.last_ok_at ? ` Datos al ${when(sync.last_ok_at)}.` : ''} Si la llave personal venció, creá una nueva en Garmin Connect y reemplazala en GitHub.</div></div>`;
+  }
+  return `<div class="banner info"><span>✓</span><div>Sincronizado con Garmin Connect · última actualización <b>${when(sync.last_ok_at ?? sync.last_run_at)}</b>. Se actualiza solo cada 3 horas.</div></div>`;
+}
+
 export default async function health(view, { setSub }) {
   const load = async () => {
     view.innerHTML = `<div class="toolbar">${periodPicker(period)}</div><div class="kpis">${skeleton(4)}</div>`;
@@ -18,7 +28,7 @@ export default async function health(view, { setSub }) {
 
     view.innerHTML = `
       <div class="toolbar">${periodPicker(period)}</div>
-      <div class="banner info"><span>ℹ</span><div>Datos históricos importados de Garmin y Tredict${d.latest_date ? ` (último registro: <b>${fmtDate(d.latest_date, { day: 'numeric', month: 'long' })}</b>)` : ''}. Se actualizarán solos cuando conectemos Garmin Connect.</div></div>
+      ${syncBanner(d.garmin_sync)}
       ${rows.length ? `
       <div class="kpis">
         <div class="card kpi"><span class="eyebrow">Pasos promedio</span><div class="value num">${fmtInt(avg('steps'))}</div><div class="foot">${goalDays !== null && stepDays.length ? `${goalDays} de ${stepDays.length} días cumpliste ${fmtInt(stepsGoal)}` : ''}</div></div>
