@@ -5,6 +5,60 @@ import { openSession } from './sessions.js';
 
 let period = 'month';
 
+const norm = (t) => String(t ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+/**
+ * Selector de ejercicio con buscador (reemplaza al desplegable).
+ * Filtra mientras escribís por nombre o músculo, sin importar tildes ni mayúsculas.
+ * Devuelve select(key) para elegir uno desde afuera (p. ej. la tabla de ejercicios).
+ */
+function exercisePicker(root, keys, series, onChange) {
+  const btn = $('.ex-pick-btn', root), pop = $('.ex-pick-pop', root), q = $('.pick-q', root), list = $('.pick-list', root);
+  let current = null;
+
+  const render = () => {
+    const words = norm(q.value).split(' ').filter(Boolean);
+    const hits = keys.filter((k) => { const hay = norm(`${series[k].name} ${series[k].muscle}`); return words.every((w) => hay.includes(w)); });
+    const groups = new Map();
+    for (const k of hits) { const m = series[k].muscle || 'Otros'; if (!groups.has(m)) groups.set(m, []); groups.get(m).push(k); }
+    const ordered = [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0], 'es'));
+    list.innerHTML = ordered.length ? ordered.map(([m, ks]) => `<div class="pick-group">${esc(m)}</div>${ks.map((k) => `
+      <button type="button" class="pick-item ${k === current ? 'on' : ''}" role="option" aria-selected="${k === current}" data-key="${esc(k)}">
+        <span>${esc(series[k].name)}</span>${k === current ? '<b aria-hidden="true">✓</b>' : `<small>${series[k].points.length} ${series[k].points.length === 1 ? 'sesión' : 'sesiones'}</small>`}
+      </button>`).join('')}`).join('')
+      : `<p class="pick-empty">Sin resultados para “${esc(q.value.trim())}”</p>`;
+  };
+  const open = () => {
+    pop.hidden = false; btn.setAttribute('aria-expanded', 'true'); root.classList.add('open');
+    q.value = ''; render(); q.focus({ preventScroll: true });
+  };
+  const close = () => { pop.hidden = true; btn.setAttribute('aria-expanded', 'false'); root.classList.remove('open'); };
+  const select = (key) => {
+    if (!series[key]) return;
+    const changed = key !== current;
+    current = key;
+    $('.ex-pick-name', root).textContent = series[key].name;
+    btn.title = series[key].name;
+    close();
+    if (changed) onChange(key);
+  };
+
+  btn.onclick = () => (pop.hidden ? open() : close());
+  q.oninput = render;
+  q.onkeydown = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); const f = $('.pick-item', list); if (f) select(f.dataset.key); }
+    else if (e.key === 'Escape') { if (q.value) { q.value = ''; render(); } else { close(); btn.focus(); } }
+  };
+  list.onclick = (e) => { const it = e.target.closest('.pick-item'); if (it) select(it.dataset.key); };
+  // Tocar fuera del selector lo cierra (y el listener se quita solo al cambiar de página).
+  const outside = (e) => {
+    if (!document.body.contains(root)) { document.removeEventListener('pointerdown', outside); return; }
+    if (!pop.hidden && !root.contains(e.target)) close();
+  };
+  document.addEventListener('pointerdown', outside);
+  return select;
+}
+
 export default async function strength(view, { setSub }) {
   const load = async () => {
     view.innerHTML = `<div class="toolbar">${periodPicker(period)}</div><div class="kpis">${skeleton(4)}</div><div class="cols-2 section">${skeleton(2, 'chart-sk')}</div>`;
@@ -28,7 +82,13 @@ export default async function strength(view, { setSub }) {
 
       ${keys.length ? `<div class="card section">
         <div class="card-head"><div><h2>Evolución por ejercicio</h2><p>1RM estimado (fórmula de Epley) y peso máximo por sesión. Incluye historial manual y de Garmin.</p></div>
-          <select id="exSel" style="max-width:280px">${keys.map((k) => `<option value="${k}" ${k === first ? 'selected' : ''}>${esc(d.series[k].name)}</option>`).join('')}</select></div>
+          <div class="ex-pick" id="exPick">
+            <button type="button" class="ex-pick-btn" aria-haspopup="listbox" aria-expanded="false"><span class="ex-pick-name"></span><span class="ex-pick-caret" aria-hidden="true">▾</span></button>
+            <div class="ex-pick-pop" hidden>
+              <input type="search" class="pick-q" placeholder="Buscar ejercicio o músculo…" autocomplete="off" enterkeyhint="search" aria-label="Buscar ejercicio">
+              <div class="pick-list" role="listbox" aria-label="Ejercicios"></div>
+            </div>
+          </div></div>
         <div class="chart lg" id="cEx"></div></div>` : ''}
 
       <div class="cols-2 section">
@@ -74,12 +134,12 @@ export default async function strength(view, { setSub }) {
         ],
       });
     };
-    if (first) drawEx(first);
-    const sel = $('#exSel');
-    if (sel) sel.onchange = () => { echarts.getInstanceByDom($('#cEx'))?.dispose(); drawEx(sel.value); };
+    const pick = $('#exPick');
+    const select = pick ? exercisePicker(pick, keys, d.series, (key) => { echarts.getInstanceByDom($('#cEx'))?.dispose(); drawEx(key); }) : null;
+    if (first) select?.(first);
     $$('tr[data-key]', view).forEach((tr) => (tr.onclick = () => {
-      if (!sel || !d.series[tr.dataset.key]) return;
-      sel.value = tr.dataset.key; sel.onchange(); $('#cEx').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (!select || !d.series[tr.dataset.key]) return;
+      select(tr.dataset.key); $('#cEx').scrollIntoView({ behavior: 'smooth', block: 'center' });
     }));
     $$('[data-kind]', view).forEach((b) => (b.onclick = () => openSession(b.dataset.kind, b.dataset.id, load)));
 

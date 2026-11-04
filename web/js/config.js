@@ -5,4 +5,4 @@
 export const SUPABASE_URL = 'https://yqqpdmqykcdwqovbnato.supabase.co';
 export const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_5D3Qy6ys8C2CrbUnEF7z-A_WwgaGpYh';
 export const API_URL = `${SUPABASE_URL}/functions/v1/api`;
-export const APP_VERSION = '2026.11.04';
+export const APP_VERSION = '2026.11.04b';
