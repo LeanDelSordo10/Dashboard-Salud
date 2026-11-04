@@ -29,7 +29,7 @@ def shape(v, depth=0):
         inner = shape(v[0], depth + 1) if v else '-'
         return f'lista[{len(v)}] de {inner}'
     if isinstance(v, dict):
-        if depth >= 2:
+        if depth >= 3:
             return f'objeto({len(v)} campos)'
         parts = []
         for k in sorted(v)[:40]:
@@ -56,7 +56,7 @@ def main():
     def get(label, path, params=None, raw=False):
         try:
             r = s.get(BASE + path, params=params, timeout=TIMEOUT,
-                      headers={'Accept': 'application/octet-stream' if raw else 'application/json'})
+                      headers={'Accept': 'application/zip, application/x-zip-compressed, application/octet-stream' if raw else 'application/json'})
         except requests.RequestException as e:
             print(f'\n[{label}] error de red: {type(e).__name__}')
             return None
